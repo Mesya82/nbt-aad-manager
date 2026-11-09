@@ -24,6 +24,16 @@ Safety, correct recoverability, testability, and explicit uncertainty are more i
 14. **Avoid bundling upstream NBT-AAD binaries or licensed code**, and preserve notices/attribution. The tool's MIT license applies to original code only.
 15. **Changes to safety model require tests and docs in the same PR.** Provide a traceability table mapping each safety requirement to test cases.
 
+## Future Android and release-trust requirements
+
+16. The **Rust engine is the single source of truth** for planning, release validation, capabilities, backups, journals, recovery and safety policy. CLI and future Android must be adapters over shared logic, never separate update implementations.
+17. Keep the existing desktop USB+SSH MVP unchanged. Android (Kotlin/Compose, Rust JNI/UniFFI, USB Ethernet/ENET) is a separately gated follow-on phase, and must not be marked supported without Android-device and parked-car testing.
+18. SSH unlock is a **distinct optional security-sensitive module**. Do not depend on unreviewed third-party APKs, guess proprietary commands, embed credentials, silently bypass host-key checks or implement unknown unlock methods. Require verified protocol evidence, legal permission, explicit consent, threat review, fault tests and hardware approval. An existing enabled SSH service must remain sufficient.
+19. Every public binary needs published build source and recipe, pinned toolchains and lockfiles, SHA-256 sums, signatures, machine-verifiable provenance/attestations, SBOM, and independent rebuild/verification instructions. Do not claim reproducibility without independent matching evidence. Signing secrets must never enter source or logs.
+20. Android release review must validate app permissions, bundled dependencies, outbound network destinations, FFI/lifecycle behavior, absence of telemetry by default and credential redaction. Android device-writing builds must pass existing safety AC-01..AC-35 plus new Android/SSH/release gates in `docs/TEST_STRATEGY.md`.
+
+Read [ANDROID_AND_RELEASE_TRUST.md](docs/ANDROID_AND_RELEASE_TRUST.md) before implementing any mobile or release automation.
+
 ## Recommended implementation order
 
 - Phase 0: research and record facts, unknowns and target QNX command capabilities. Write golden sample fixtures (sanitized), threat model, command allowlist, and profile schema. Do not make writes.

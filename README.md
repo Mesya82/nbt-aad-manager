@@ -31,6 +31,16 @@ The initial design prioritizes **recoverability and transparency over convenienc
 
 **MVP backup scope:** on-device backups with a verified manifest. Downloading complete backups to the host is a planned upgrade, subject to confirming reliable transfer support on the target QNX environment. If no safe, sufficiently complete snapshot can be created, **installation must abort**.
 
+## Android roadmap and release transparency
+
+**Android is a planned client, not part of the desktop MVP.** Our Rust safety engine must remain platform-independent: release validation, head-unit profiles, preflight, snapshots, transaction journal, rollback, and refusal rules belong to one reusable core. A later Kotlin/Jetpack Compose Android UI should call that same engine via an audited, versioned Rust bridge. A USB-C Ethernet/ENET connection is only a candidate transport, **not yet verified on a supported phone/head-unit combination**.
+
+**SSH unlocking is a distinct, optional, high-risk feature.** The first desktop version requires SSH to be already enabled. Android should initially work with existing authenticated SSH and must not rely on closed-source third-party APKs. A future unlock module needs independently verified and legitimately implementable protocol details, separate security review, explicit consent, failure simulation and vehicle-specific validation. Unknown mechanisms stay disabled.
+
+**Public releases must be auditable.** Publish complete source and CI workflows, locked dependencies and toolchains, checksums, signed artifacts, verifiable build provenance and SBOM, permission/network inventories (for Android), and independent build comparison instructions. Never claim bit-for-bit reproducibility until independently demonstrated, especially for signed APKs. A signed build does not guarantee safety on real vehicles. Release jobs must fail when safety tests fail. Do not bundle upstream NBT-AAD binaries.
+
+See [Android architecture and release trust](docs/ANDROID_AND_RELEASE_TRUST.md) for the proposed implementation phases and future acceptance gates.
+
 ## Safety principles
 
 1. **Fail closed:** unknown layout, missing asset, inconsistent state, unsupported SSH behavior, insufficient space, or incomplete backup means no write.

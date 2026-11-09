@@ -170,3 +170,17 @@ Maintain a living table connecting risks -> rules -> code implementation -> test
 ## 8. MVP Definition of Done
 
 **All** acceptance criteria in [TEST_STRATEGY.md](TEST_STRATEGY.md) pass, read-only-by-default invariant holds in code and tests, two-person review is encouraged for command/path changes, a human can reconstruct an update and rollback from the persisted journal, and real-hardware use remains blocked until one target profile has completed an explicit pilot procedure. No silent downgrade to weaker testing is allowed.
+
+## 9. Android client roadmap (future, outside MVP)
+
+Build a phone client without fragmenting the existing Rust safety model. The Android UI may use Kotlin + Jetpack Compose with audited Rust JNI/UniFFI bindings; all release validation, planning, snapshot, journal, rollback and safety checks remain in a platform-independent Rust core.
+
+- **A1: shared Rust core**. Extract domain logic and API contracts, with golden tests proving identical plans/refusals in desktop and Android adapters.
+- **A2: Android read-only connectivity**. Investigate USB-C Ethernet/ENET, Android permissions/network routing, QNX SSH compatibility, host-key trust, and head-unit discovery. No modifications to the vehicle, SSH unlock, or unsupported-model probing.
+- **A3: Android guarded update**. Reuse the same Rust transaction engine. Persist journal and recover safely after USB unplug, network switch, background suspension, process death or SSH timeout. Prove snapshots and rollback through simulator tests before any parked-vehicle pilot.
+- **A4: optional SSH unlock**. Separate security/research work only after independently verifying a permitted, documented protocol and validating it. No dependency on third-party opaque APKs or unreviewed binaries. Do not make unlock a prerequisite for using already-enabled SSH.
+- **R1: transparent distribution**. Publish complete sources, pinned build inputs, checksums, signatures, attestations/provenance, SBOM, independent verification steps, Android permission/network audit and reproducibility status. Do not bundle upstream binaries.
+
+Android support must pass the existing desktop-core acceptance suite plus distinct `AND-*` gates. A target supported through desktop tests is not automatically an Android-supported target. Record the exact phone, OS, USB Ethernet adapter, ENET and head-unit software combination used in a parked-hardware pilot.
+
+See [Android and release trust](ANDROID_AND_RELEASE_TRUST.md) and [test strategy](TEST_STRATEGY.md).

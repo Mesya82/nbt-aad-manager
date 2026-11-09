@@ -145,3 +145,26 @@ Hardware test failure or missing evidence prevents marking that profile `validat
 ## 6. Definition of accepted MVP
 
 **All** mandatory automated acceptance checks pass with evidence; every simulated write is journaled and scoped; installation is blocked on unknown targets/releases; backup integrity and rollback are proven under injected failures; `plan` cannot mutate; a documented, reviewed hardware pilot has passed for an explicitly named profile; and README/compatibility docs honestly reflect the tested scope. Otherwise label builds `experimental / not approved for live use`.
+
+## 7. Future Android, unlock and release-trust acceptance gates
+
+The following are **additional blockers before an Android build may be advertised for vehicle-modifying use**. They do not replace MVP AC-01..AC-35. Simulator tests run only against mock/fixture backends in CI; all real vehicle validation is manual, parked and documented.
+
+| ID | Required scenario | Acceptance evidence |
+| --- | --- | --- |
+| AND-01 | Desktop and Android adapters share release, plan and recovery logic | Identical canonical plans/refusals on the same Rust fixtures |
+| AND-02 | Ethernet permission denied, USB unplug, and changed network routing | No unexpected writes; safe reconnection / failure message |
+| AND-03 | Android process death, suspend, screen rotation, lock, and SSH/network loss at each transaction boundary | Durable journal; idempotent resume or explicit manual recovery; no blind repeat |
+| AND-04 | SSH host-key mismatch / algorithm incompatibility | Abort and never weaken identity verification silently |
+| AND-05 | Android permissions, components, dependencies and network destinations | Documented audit, no unexpected telemetry or embedded credentials |
+| AND-06 | FFI panic, cancellation, malformed inputs or lifecycle teardown | No memory-safety violation, secret leak, unjournaled mutation, or lost rollback state |
+| AND-07 | Unsupported phone, adapter, head-unit or unknown capabilities | Deny mutation by default |
+| AND-08 | Real phone/vehicle combination | Parked read-only pilot first; then reviewed backup, apply, verify and controlled rollback evidence |
+| UNLOCK-01 | Unknown/undocumented unlock protocol | Feature unavailable, no speculative probing or hidden executable |
+| UNLOCK-02 | Optional supported unlock implementation | Independent protocol/security evidence, explicit consent, exhaustive fault tests and parked-vehicle approval |
+| REL-01 | Public release provenance and integrity | Immutable source commit, pinned dependencies, SHA-256, signed artifacts, SBOM and verifiable attestation |
+| REL-02 | Source-to-binary transparency | Independent build instructions and comparison report; no unproven reproducibility claim |
+| REL-03 | Safety gate release blocker | Deliberately failing required test prevents publishing the binary |
+| REL-04 | APK supply-chain audit | Review signing certificate, permissions, libraries, network egress and embedded secrets |
+
+A successful simulator run or signed APK does **not** prove safety or compatibility on arbitrary BMW/Toyota head units. See [ANDROID_AND_RELEASE_TRUST.md](ANDROID_AND_RELEASE_TRUST.md).
