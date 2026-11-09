@@ -1,0 +1,11 @@
+total 88
+drwxrwxr-x 10 root      root           4096 Jan 01  2000 .
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 ..
+drw-------  2 root      root           4096 Jan 01  2000 .boot
+drwxrwxr-x  2 root      root          12288 Jan 01  2000 bin
+drwxrwxr-x  7 root      root           4096 Jan 01  2000 etc
+drwxrwxr-x  3 root      root           4096 Jan 01  2000 info
+drwxrwxr-x  3 root      root           4096 Jan 01  2000 lib
+drwxrwxr-x 13 root      root           4096 Nov 06 12:01 opt
+drwxrwxrwx  3 root      root           4096 Jan 01  2000 repository
+drwxrwxr-x  3 root      root           4096 Jan 01  2000 usr

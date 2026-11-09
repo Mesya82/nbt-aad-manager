@@ -122,7 +122,7 @@ Both runs logged in and executed 162 read-only commands each. The read-back stag
 
 - `/opt/aa`, `/opt/hmi/ID5/data/ro/Plugins` and `…/Plugins/NbtAad` are all on `/dev/sda0t179`, mounted at `/fs/sda0` (qnx6, 6.6 GB, 82% used, about 1.25 GB free). Moving the plugin directory into `/opt/aa` is therefore a **same-filesystem rename**. The `/opt/aa` inode is identical through `/fs/sda0/opt/aa`.
 - `/var` → `/fs/sda1` (`/dev/sda0t178`, qnx6, about 438 MB free). `/dev/shmem` is RAM.
-- Whether the mounts are read-only is unknown: QNX `mount` output shows no ro/rw flags. Run 4 measures it with `test -w`.
+- QNX `mount` output shows no ro/rw flags. Runs 4 and 5 measured writability with `test -w` (see below): `/fs/sda0` is **read-only** in normal operation.
 
 **Installed NBT-AAD**
 
@@ -141,3 +141,47 @@ Both runs logged in and executed 162 read-only commands each. The read-back stag
 - **Likely, not proven:** a multi-second stall of the block-device drivers disturbed the running AA session.
 - Mitigation (probe v3): `df` is allowed only with explicit paths (66 ms in the same runs), and all bare `df` calls are removed from both probes.
 - **Lesson:** "read-only" is not "side-effect-free". Probe commands must be bounded in scope, not only non-writing.
+
+### Probe runs 4 and 5, 2026-11-09 (probe v3; after an operator-performed upstream update)
+
+Fixtures: `tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/` (13:45 UTC, AA connected, USB test) and `run5-20261109-aa-stopped/` (13:46 UTC). 203 and 189 commands, all read-backs completed. **AA stayed connected through run 4**, consistent with the bare-`df` hypothesis for the run 3 incident (not a proof).
+
+**An upstream update happened between run 3 and run 4** (outside this tool). `/opt/aa` and the plugin directories changed at about 13:39–13:40 (head-unit clock, UTC), and the head unit restarted at about 13:41 (fresh `/dev/shmem`). The operator confirmed doing this update by hand from a USB stick, following upstream `updating.md`, and identified it as "1.9.35" (the release title). The binary reports `v1.9.36-combo`. This gives a before/after record of a real update:
+
+| Item | Before (runs 1–3) | After (runs 4–5) |
+| --- | --- | --- |
+| `/opt/aa/nbt-aad` | 731,847 B | 773,142 B, `Build: v1.9.36-combo`, sha256 `1ec14876…` |
+| plugin `libNbtAad.so` | 66,843 B | 71,008 B, `rhmiapp-43-combo` |
+| `/opt/aa/nbt-aad.old` | absent | 731,847 B, `Build: v1.9.18-osd1281`, sha256 `8b4b45be…` |
+| `/opt/aa/NbtAad.old/` | absent | the previous 5-file plugin (`rhmiapp-36-overlays`) |
+| `nbt-aad.env`, `.env.bak` | 113 B / 112 B | unchanged (same digests) |
+| `/var/opt/aa/bootguard` | absent | 11 B while the daemon runs; absent after it stopped (run 5) |
+
+**Digest provenance (host-side hashing of `cat` read-backs, compared with GitHub asset digests and the release archives):**
+
+- Installed daemon = asset `nbt-aad` of release tag **`gps`**, whose title is "v1.9.35-combined-prs". The binary itself reports `v1.9.36-combo`. All five installed plugin files are byte-identical to `gps/Releases.zip`.
+- `nbt-aad.old` and all five files of `NbtAad.old/` are byte-identical to release tag **`volsliderfixforreal`** ("[STABLE] Volume Slider Fix - v1.9.18"). This confirms the run 1–3 candidate identification.
+- **Release title, tag and embedded version disagree.** Identification must use exact asset digests, never titles or embedded strings alone (rule 11).
+- Upstream's flow kept a complete, byte-exact backup in `/opt/aa` (same filesystem). `NbtAad.manifest` and `NbtAad_ALL_Images.zip` are identical across the two releases.
+
+**Writability (`on … /bin/sh -c 'test -w <dir>'` as root)**
+
+| Path | Result |
+| --- | --- |
+| `/opt/aa`, `/opt/hmi/ID5/data/ro/Plugins/NbtAad` (`/fs/sda0`) | **not writable** (rc 1) |
+| `/var/opt/aa` (`/fs/sda1`), `/dev/shmem` | writable (rc 0) |
+
+`/fs/sda0` is mounted read-only in normal operation, yet was written during the update. The upstream flow therefore remounts it read-write. A restart returned it to read-only. Any write path needs an explicit, journaled remount step, and post-boot verification must not assume the remount persists.
+
+**Daemon runtime state**
+
+- `usblog=1` sends daemon logs to the USB stick: with a stick inserted (run 4), `nbt-aad.log`/`nbt-aad-app.log` were on `/mnt/umass01200t12/` and absent from `/dev/shmem`. Without a stick (run 5) they were back in `/dev/shmem`. The location of the logs is state-dependent; their absence is not an error.
+- `bootguard` holds a Unix timestamp (the daemon start, 13:42:02 UTC). It exists while the daemon runs and was gone after a clean stop. Treat it as daemon-owned: never create, edit or delete it, and capture it only for diagnostics.
+- `/dev/shmem/nbt-aad-state` exists only while AA is connected.
+- `NBTMediaMainApp.core` (about 960 KB) was rewritten in `/dev/shmem` at about 13:44 and 13:45, so the BMW media application dumped core around the time the USB sticks were inserted. Runs 2 and 3 also showed cores (HmiMain3D, LayerManagerService, NBTMediaMainApp, screen) from 12:47, before any probe ran. There's no evidence either way linking them to NBT-AAD or the probe. The `ls` timestamps are the only signal, and core contents are not read.
+
+**USB (hu-omap)**
+
+- Sticks mount at `/mnt/umass<id>t<part>` and again at `/fs/usb<n>`, as `dos (fat32)`/`dos (fat16)`. `df -k <mount>` works and is fast. The update stick held `Releases/` and `nbt-aad` at the root.
+- Each mount root has a QNX special entry `=USB` (type `n`). The parser classifies it as non-file.
+- The marker-file check was not exercised: no marker file was on either stick.

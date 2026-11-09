@@ -220,3 +220,111 @@ fn embedded_versions_extracts_markers() {
     );
     assert_eq!(v, vec!["Build: v1.9.36-combo", "rhmiapp-43-combo"]);
 }
+
+/// Real listings from the pilot head unit (run 4: after an upstream update,
+/// AA running, USB stick inserted). The parser must read every regular file
+/// with its exact size and name, and fail closed on anything else.
+mod pilot_listings {
+    use super::*;
+
+    fn files(listing: &str) -> Vec<(String, u64)> {
+        parse_ls(listing)
+            .into_iter()
+            .filter_map(|e| match e {
+                LsEntry::File { name, size } => Some((name, size.expect("numeric size"))),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn unparsed(listing: &str) -> Vec<LsEntry> {
+        parse_ls(listing)
+            .into_iter()
+            .filter(|e| matches!(e, LsEntry::Unparsed { .. }))
+            .collect()
+    }
+
+    fn owned(v: &[(&str, u64)]) -> Vec<(String, u64)> {
+        v.iter().map(|(n, s)| ((*n).to_owned(), *s)).collect()
+    }
+
+    #[test]
+    fn opt_aa_after_upstream_update() {
+        let l = include_str!(
+            "../../../../tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/exec/0043-hu-ls-opt-aa/stdout"
+        );
+        // NbtAad.old/ is a directory: not a file entry, not unparsed.
+        assert_eq!(
+            files(l),
+            owned(&[
+                ("nbt-aad", 773_142),
+                ("nbt-aad.env", 113),
+                ("nbt-aad.env.bak", 112),
+                ("nbt-aad.old", 731_847),
+            ])
+        );
+        assert!(unparsed(l).is_empty());
+    }
+
+    #[test]
+    fn plugin_and_backup_plugin_have_the_five_file_layout() {
+        let new = include_str!(
+            "../../../../tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/exec/0047-hu-ls-plugin-nbtaad/stdout"
+        );
+        let old = include_str!(
+            "../../../../tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/exec/0049-hu-ls-nbtaad-old/stdout"
+        );
+        let names = |l: &str| files(l).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        let five = [
+            "NbtAad.manifest",
+            "NbtAad.xml",
+            "NbtAad_ALL_Images.zip",
+            "NbtAad_ALL_Texts.zip",
+            "libNbtAad.so",
+        ];
+        assert_eq!(names(new), five);
+        assert_eq!(names(old), five);
+        assert_eq!(files(new)[4], ("libNbtAad.so".to_owned(), 71_008));
+        assert_eq!(files(old)[4], ("libNbtAad.so".to_owned(), 66_843));
+    }
+
+    #[test]
+    fn var_opt_aa_with_bootguard() {
+        let l = include_str!(
+            "../../../../tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/exec/0051-hu-ls-var-opt-aa/stdout"
+        );
+        assert_eq!(
+            files(l),
+            owned(&[
+                ("autostart", 2),
+                ("bootguard", 11),
+                ("spp-model", 15),
+                ("touch-peer", 21),
+                ("usblog", 2),
+            ])
+        );
+    }
+
+    #[test]
+    fn usb_root_skips_special_entries_and_directories() {
+        let l = include_str!(
+            "../../../../tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/exec/0194-hu-usb-ls-umass01200t12/stdout"
+        );
+        // `=USB` is a QNX special entry (type `n`): Other, never a file.
+        let e = parse_ls(l);
+        assert!(
+            e.iter()
+                .any(|x| matches!(x, LsEntry::Other { line } if line.ends_with("=USB")))
+        );
+        assert_eq!(
+            files(l),
+            owned(&[
+                ("nbt-aad", 773_142),
+                ("nbt-aad-app.log", 5_457),
+                ("nbt-aad.log", 157_498),
+            ])
+        );
+        // Directories (including "System Volume Information") are skipped.
+        assert!(unparsed(l).is_empty());
+    }
+}

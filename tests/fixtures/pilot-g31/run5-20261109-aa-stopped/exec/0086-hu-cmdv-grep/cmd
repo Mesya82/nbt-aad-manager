@@ -1,0 +1,1 @@
+on -f /net/hu-omap/ /bin/sh -c 'command -v grep'

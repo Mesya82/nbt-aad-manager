@@ -1,0 +1,189 @@
+0001-outer-echo	text	0	35	9	0	echo probe-ok
+0002-outer-uname	text	0	72	57	0	uname -a
+0003-outer-shell	text	0	32	105	0	echo "0=$0 SHELL=$SHELL KSH=$KSH_VERSION PATH=$PATH PWD=$PWD"
+0004-outer-id	text	126	35	0	52	id
+0005-outer-date	text	126	33	0	54	date
+0006-outer-rc-true	text	0	46	0	0	true
+0007-outer-rc-false	text	1	37	0	0	false
+0008-outer-rc-sh7	text	7	55	0	0	/bin/sh -c 'exit 7'
+0009-outer-rc-missing-file	text	1	48	0	55	ls /nonexistent-nbt-probe
+0010-outer-rc-missing-cmd	text	126	34	0	75	nonexistent-nbt-probe-cmd
+0011-outer-split-streams	text	3	76	10	10	echo to-stdout; echo to-stderr 1>&2; exit 3
+0012-outer-ls-root	text	0	56	907	0	ls -la /
+0013-outer-ls-net	text	0	49	141	0	ls -la /net
+0014-outer-ls-fs	text	1	50	0	36	ls -la /fs
+0015-outer-ls-mnt	text	0	48	143	0	ls -la /mnt
+0016-outer-ls-opt	text	0	78	86	0	ls -la /opt
+0017-outer-ls-opt-aa	text	1	51	0	40	ls -la /opt/aa
+0018-outer-which-on	text	0	39	8	0	command -v on
+0019-outer-mount	text	0	229	114	0	mount
+0020-outer-nbt-version	text	1	46	0	56	cat /opt/sys/etc/nbt_version.txt
+0021-outer-pidin	text	0	197	23166	0	pidin
+0022-hu-echo	text	2	55	0	37	on -f /net/hu-omap/ echo probe-ok
+0023-hu-sh-echo	text	0	59	9	0	on -f /net/hu-omap/ /bin/sh -c 'echo probe-ok'
+0024-hu-rc-true	text	2	59	0	37	on -f /net/hu-omap/ true
+0025-hu-rc-false	text	1	63	0	0	on -f /net/hu-omap/ false
+0026-hu-rc-sh7	text	7	68	0	0	on -f /net/hu-omap/ /bin/sh -c 'exit 7'
+0027-hu-rc-missing-file	text	1	75	0	55	on -f /net/hu-omap/ ls /nonexistent-nbt-probe
+0028-hu-rc-missing-cmd	text	2	62	0	58	on -f /net/hu-omap/ nonexistent-nbt-probe-cmd
+0029-hu-split-streams	text	3	68	10	10	on -f /net/hu-omap/ /bin/sh -c 'echo to-stdout; echo to-stderr 1>&2; exit 3'
+0030-hu-quoting	text	0	114	16	0	on -f /net/hu-omap/ /bin/sh -c 'for a in "a b" c "d'"'"'e"; do echo "[$a]"; done'
+0031-hu-uname	text	0	70	64	0	on -f /net/hu-omap/ uname -a
+0032-hu-shell	text	0	81	131	0	on -f /net/hu-omap/ /bin/sh -c 'echo "0=$0 SHELL=$SHELL KSH=$KSH_VERSION PATH=$PATH PWD=$PWD"'
+0033-hu-id	text	2	56	0	35	on -f /net/hu-omap/ id
+0034-hu-date	text	0	60	29	0	on -f /net/hu-omap/ date
+0035-hu-nbt-version	text	0	65	16	0	on -f /net/hu-omap/ cat /opt/sys/etc/nbt_version.txt
+0036-hu-ls-root	text	0	93	1162	0	on -f /net/hu-omap/ ls -la /
+0037-hu-ls-net	text	0	77	141	0	on -f /net/hu-omap/ ls -la /net
+0038-hu-ls-fs	text	0	61	523	0	on -f /net/hu-omap/ ls -la /fs
+0039-hu-ls-mnt	text	0	57	275	0	on -f /net/hu-omap/ ls -la /mnt
+0040-hu-ls-opt	text	0	75	78	0	on -f /net/hu-omap/ ls -la /opt
+0041-hu-ls-fs-sda0	text	0	100	626	0	on -f /net/hu-omap/ ls -la /fs/sda0
+0042-hu-ls-fs-sda0-opt	text	0	85	807	0	on -f /net/hu-omap/ ls -la /fs/sda0/opt
+0043-hu-ls-opt-aa	text	0	68	474	0	on -f /net/hu-omap/ ls -la /opt/aa
+0044-hu-ls-fs-sda0-opt-aa	text	0	57	474	0	on -f /net/hu-omap/ ls -la /fs/sda0/opt/aa
+0045-hu-lsR-opt-aa	text	0	68	1002	0	on -f /net/hu-omap/ ls -laR /opt/aa
+0046-hu-ls-plugins	text	0	71	192	0	on -f /net/hu-omap/ ls -la /opt/hmi/ID5/data/ro/Plugins
+0047-hu-ls-plugin-nbtaad	text	0	72	497	0	on -f /net/hu-omap/ ls -la /opt/hmi/ID5/data/ro/Plugins/NbtAad
+0048-hu-ls-plugin-nbtaad-lower	text	1	67	0	68	on -f /net/hu-omap/ ls -la /opt/hmi/ID5/data/ro/Plugins/nbtaad
+0049-hu-ls-nbtaad-old	text	0	70	497	0	on -f /net/hu-omap/ ls -la /opt/aa/NbtAad.old
+0050-hu-ls-var-opt	text	0	72	618	0	on -f /net/hu-omap/ ls -la /var/opt
+0051-hu-ls-var-opt-aa	text	0	69	394	0	on -f /net/hu-omap/ ls -la /var/opt/aa
+0052-hu-ls-dev-shmem	text	0	68	6546	0	on -f /net/hu-omap/ ls -la /dev/shmem
+0053-hu-lsd-paths	text	0	60	1225	0	on -f /net/hu-omap/ ls -ld /opt /opt/aa /opt/hmi /opt/hmi/ID5 /opt/hmi/ID5/data /opt/hmi/ID5/data/ro /opt/hmi/ID5/data/ro/Plugins /opt/hmi/ID5/data/ro/Plugins/NbtAad /fs/sda0 /fs/sda0/opt /fs/sda0/opt/aa /fs/sda1 /var /var/opt /var/opt/aa /mnt /dev/shmem
+0054-hu-lsdi-paths	text	0	74	502	0	on -f /net/hu-omap/ ls -ldi /opt/aa /opt/hmi/ID5/data/ro/Plugins /opt/hmi/ID5/data/ro/Plugins/NbtAad /fs/sda0/opt/aa /var/opt/aa /dev/shmem
+0055-hu-mount	text	0	214	884	0	on -f /net/hu-omap/ mount
+0056-hu-df-paths	text	0	74	480	0	on -f /net/hu-omap/ df -k /opt/aa /opt/hmi/ID5/data/ro/Plugins /opt/hmi/ID5/data/ro/Plugins/NbtAad /var/opt/aa /fs/sda0 /fs/sda1 /dev/shmem
+0057-hu-pidin	text	0	258	93444	0	on -f /net/hu-omap/ pidin
+0058-hu-pidin-arg	text	0	90	19	0	on -f /net/hu-omap/ pidin -p nbt-aad arg
+0059-hu-pf-conf	text	0	59	4179	0	on -f /net/hu-omap/ cat /fs/sda0/etc/pf.conf
+0060-hu-etc-pf-conf	text	0	79	4179	0	on -f /net/hu-omap/ cat /etc/pf.conf
+0061-hu-ls-pf-bak	text	1	65	0	47	on -f /net/hu-omap/ ls -la /opt/aa/pf.bak
+0062-hu-test-w-opt-aa	text	1	72	0	0	on -f /net/hu-omap/ /bin/sh -c 'test -w /opt/aa'
+0063-hu-test-w-plugin	text	1	64	0	0	on -f /net/hu-omap/ /bin/sh -c 'test -w /opt/hmi/ID5/data/ro/Plugins/NbtAad'
+0064-hu-test-w-var-opt-aa	text	0	64	0	0	on -f /net/hu-omap/ /bin/sh -c 'test -w /var/opt/aa'
+0065-hu-test-w-dev-shmem	text	0	55	0	0	on -f /net/hu-omap/ /bin/sh -c 'test -w /dev/shmem'
+0066-hu-cmdv-sh	text	0	85	8	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sh'
+0067-hu-cmdv-ksh	text	0	74	9	0	on -f /net/hu-omap/ /bin/sh -c 'command -v ksh'
+0068-hu-cmdv-on	text	0	61	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v on'
+0069-hu-cmdv-ls	text	0	65	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v ls'
+0070-hu-cmdv-cat	text	0	71	13	0	on -f /net/hu-omap/ /bin/sh -c 'command -v cat'
+0071-hu-cmdv-df	text	0	67	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v df'
+0072-hu-cmdv-mount	text	0	60	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v mount'
+0073-hu-cmdv-pidin	text	0	77	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v pidin'
+0074-hu-cmdv-use	text	0	74	13	0	on -f /net/hu-omap/ /bin/sh -c 'command -v use'
+0075-hu-cmdv-sha256sum	text	1	65	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sha256sum'
+0076-hu-cmdv-sha256	text	1	86	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sha256'
+0077-hu-cmdv-sha1sum	text	1	73	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sha1sum'
+0078-hu-cmdv-md5sum	text	1	67	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v md5sum'
+0079-hu-cmdv-md5	text	1	57	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v md5'
+0080-hu-cmdv-cksum	text	1	62	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v cksum'
+0081-hu-cmdv-sum	text	1	67	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sum'
+0082-hu-cmdv-openssl	text	1	67	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v openssl'
+0083-hu-cmdv-od	text	1	74	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v od'
+0084-hu-cmdv-hexdump	text	1	70	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v hexdump'
+0085-hu-cmdv-strings	text	1	56	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v strings'
+0086-hu-cmdv-grep	text	0	67	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v grep'
+0087-hu-cmdv-sed	text	0	137	13	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sed'
+0088-hu-cmdv-awk	text	1	58	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v awk'
+0089-hu-cmdv-wc	text	0	57	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v wc'
+0090-hu-cmdv-head	text	1	69	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v head'
+0091-hu-cmdv-tail	text	0	59	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v tail'
+0092-hu-cmdv-find	text	0	70	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v find'
+0093-hu-cmdv-stat	text	1	79	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v stat'
+0094-hu-cmdv-readlink	text	1	70	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v readlink'
+0095-hu-cmdv-realpath	text	1	59	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v realpath'
+0096-hu-cmdv-basename	text	1	69	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v basename'
+0097-hu-cmdv-dirname	text	1	77	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v dirname'
+0098-hu-cmdv-tar	text	1	85	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v tar'
+0099-hu-cmdv-pax	text	1	59	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v pax'
+0100-hu-cmdv-gzip	text	0	65	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v gzip'
+0101-hu-cmdv-zip	text	1	61	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v zip'
+0102-hu-cmdv-unzip	text	1	60	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v unzip'
+0103-hu-cmdv-mktemp	text	1	75	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v mktemp'
+0104-hu-cmdv-mv	text	0	78	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v mv'
+0105-hu-cmdv-cp	text	0	70	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v cp'
+0106-hu-cmdv-ln	text	0	70	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v ln'
+0107-hu-cmdv-mkdir	text	0	80	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v mkdir'
+0108-hu-cmdv-rmdir	text	1	68	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v rmdir'
+0109-hu-cmdv-rm	text	0	68	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v rm'
+0110-hu-cmdv-chmod	text	0	72	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v chmod'
+0111-hu-cmdv-chown	text	1	77	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v chown'
+0112-hu-cmdv-touch	text	1	57	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v touch'
+0113-hu-cmdv-dd	text	0	66	12	0	on -f /net/hu-omap/ /bin/sh -c 'command -v dd'
+0114-hu-cmdv-sync	text	1	97	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sync'
+0115-hu-cmdv-fsync	text	1	56	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v fsync'
+0116-hu-cmdv-kill	text	0	61	5	0	on -f /net/hu-omap/ /bin/sh -c 'command -v kill'
+0117-hu-cmdv-slay	text	0	75	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v slay'
+0118-hu-cmdv-pidof	text	1	63	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v pidof'
+0119-hu-cmdv-shutdown	text	1	64	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v shutdown'
+0120-hu-cmdv-sleep	text	0	60	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sleep'
+0121-hu-cmdv-date	text	0	62	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v date'
+0122-hu-cmdv-printf	text	1	60	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v printf'
+0123-hu-cmdv-test	text	0	62	5	0	on -f /net/hu-omap/ /bin/sh -c 'command -v test'
+0124-hu-cmdv-xargs	text	1	78	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v xargs'
+0125-hu-cmdv-base64	text	1	64	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v base64'
+0126-hu-cmdv-uuencode	text	1	86	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v uuencode'
+0127-hu-cmdv-sort	text	0	63	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v sort'
+0128-hu-cmdv-uniq	text	1	61	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v uniq'
+0129-hu-cmdv-cmp	text	1	92	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v cmp'
+0130-hu-cmdv-diff	text	0	69	14	0	on -f /net/hu-omap/ /bin/sh -c 'command -v diff'
+0131-hu-cmdv-fsysinfo	text	1	66	0	0	on -f /net/hu-omap/ /bin/sh -c 'command -v fsysinfo'
+0132-hu-cmdv-chkqnx6fs	text	0	74	19	0	on -f /net/hu-omap/ /bin/sh -c 'command -v chkqnx6fs'
+0133-hu-cmdv-mkqnx6fs	text	0	71	18	0	on -f /net/hu-omap/ /bin/sh -c 'command -v mkqnx6fs'
+0134-hu-cmdv-devb-umass	text	0	79	20	0	on -f /net/hu-omap/ /bin/sh -c 'command -v devb-umass'
+0135-hu-cmdv-qconn	text	0	78	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v qconn'
+0136-hu-cmdv-pfctl	text	0	63	15	0	on -f /net/hu-omap/ /bin/sh -c 'command -v pfctl'
+0137-hu-use-ls	text	0	80	1283	0	on -f /net/hu-omap/ use ls
+0138-hu-use-cp	text	0	67	2844	0	on -f /net/hu-omap/ use cp
+0139-hu-use-mv	text	0	76	412	0	on -f /net/hu-omap/ use mv
+0140-hu-use-df	text	0	60	336	0	on -f /net/hu-omap/ use df
+0141-hu-use-mount	text	0	60	1732	0	on -f /net/hu-omap/ use mount
+0142-hu-use-pidin	text	0	69	1885	0	on -f /net/hu-omap/ use pidin
+0143-hu-use-cksum	text	1	105	0	103	on -f /net/hu-omap/ use cksum
+0144-hu-use-md5	text	1	115	0	101	on -f /net/hu-omap/ use md5
+0145-hu-use-sha256sum	text	1	110	0	107	on -f /net/hu-omap/ use sha256sum
+0146-hu-use-on	text	0	74	1300	0	on -f /net/hu-omap/ use on
+0147-hu-use-mkdir	text	0	78	592	0	on -f /net/hu-omap/ use mkdir
+0148-hu-use-ln	text	0	105	783	0	on -f /net/hu-omap/ use ln
+0149-hu-use-chmod	text	0	60	760	0	on -f /net/hu-omap/ use chmod
+0150-hu-use-sync	text	1	101	0	102	on -f /net/hu-omap/ use sync
+0151-hu-use-slay	text	0	68	2320	0	on -f /net/hu-omap/ use slay
+0152-hu-use-find	text	0	87	20451	0	on -f /net/hu-omap/ use find
+0153-hu-use-stat	text	1	112	0	102	on -f /net/hu-omap/ use stat
+0154-hu-use-tar	text	1	96	0	101	on -f /net/hu-omap/ use tar
+0155-hu-use-pax	text	1	105	0	101	on -f /net/hu-omap/ use pax
+0156-hu-use-mktemp	text	1	124	0	104	on -f /net/hu-omap/ use mktemp
+0157-hu-digest-sha256sum	text	2	76	0	42	on -f /net/hu-omap/ sha256sum /opt/aa/nbt-aad
+0158-hu-digest-sha256	text	2	61	0	39	on -f /net/hu-omap/ sha256 /opt/aa/nbt-aad
+0159-hu-digest-md5sum	text	2	61	0	39	on -f /net/hu-omap/ md5sum /opt/aa/nbt-aad
+0160-hu-digest-md5	text	2	62	0	36	on -f /net/hu-omap/ md5 /opt/aa/nbt-aad
+0161-hu-digest-cksum	text	2	71	0	38	on -f /net/hu-omap/ cksum /opt/aa/nbt-aad
+0162-hu-digest-sum	text	2	94	0	36	on -f /net/hu-omap/ sum /opt/aa/nbt-aad
+0163-hu-digest-openssl	text	2	56	0	40	on -f /net/hu-omap/ openssl dgst -sha256 /opt/aa/nbt-aad
+0164-list	text	0	69	474	0	on -f /net/hu-omap/ ls -la /opt/aa
+0165-readback	binary	0	545	773142	0	on -f /net/hu-omap/ cat /opt/aa/nbt-aad
+0166-readback	binary	0	66	113	0	on -f /net/hu-omap/ cat /opt/aa/nbt-aad.env
+0167-readback	binary	0	96	112	0	on -f /net/hu-omap/ cat /opt/aa/nbt-aad.env.bak
+0168-readback	binary	0	554	731847	0	on -f /net/hu-omap/ cat /opt/aa/nbt-aad.old
+0169-list	text	0	64	497	0	on -f /net/hu-omap/ ls -la /opt/hmi/ID5/data/ro/Plugins/NbtAad
+0170-readback	binary	0	81	568	0	on -f /net/hu-omap/ cat /opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad.manifest
+0171-readback	binary	0	76	7924	0	on -f /net/hu-omap/ cat /opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad.xml
+0172-readback	binary	0	94	55671	0	on -f /net/hu-omap/ cat /opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad_ALL_Images.zip
+0173-readback	binary	0	71	4914	0	on -f /net/hu-omap/ cat /opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad_ALL_Texts.zip
+0174-readback	binary	0	113	71008	0	on -f /net/hu-omap/ cat /opt/hmi/ID5/data/ro/Plugins/NbtAad/libNbtAad.so
+0175-list	text	0	61	497	0	on -f /net/hu-omap/ ls -la /opt/aa/NbtAad.old
+0176-readback	binary	0	87	568	0	on -f /net/hu-omap/ cat /opt/aa/NbtAad.old/NbtAad.manifest
+0177-readback	binary	0	74	6713	0	on -f /net/hu-omap/ cat /opt/aa/NbtAad.old/NbtAad.xml
+0178-readback	binary	0	102	55671	0	on -f /net/hu-omap/ cat /opt/aa/NbtAad.old/NbtAad_ALL_Images.zip
+0179-readback	binary	0	68	4682	0	on -f /net/hu-omap/ cat /opt/aa/NbtAad.old/NbtAad_ALL_Texts.zip
+0180-readback	binary	0	152	66843	0	on -f /net/hu-omap/ cat /opt/aa/NbtAad.old/libNbtAad.so
+0181-list	text	0	70	394	0	on -f /net/hu-omap/ ls -la /var/opt/aa
+0182-readback	binary	0	56	2	0	on -f /net/hu-omap/ cat /var/opt/aa/autostart
+0183-readback	binary	0	77	15	0	on -f /net/hu-omap/ cat /var/opt/aa/spp-model
+0184-readback	binary	0	59	21	0	on -f /net/hu-omap/ cat /var/opt/aa/touch-peer
+0185-readback	binary	0	58	2	0	on -f /net/hu-omap/ cat /var/opt/aa/usblog
+0186-readback	binary	0	561	773142	0	on -f /net/hu-omap/ cat /opt/aa/nbt-aad
+0187-readback	binary	0	589	773142	0	on -f /net/hu-omap/ cat /opt/aa/nbt-aad
+0188-log-nbt-aad.log	secret	0	68	14381	0	on -f /net/hu-omap/ cat /dev/shmem/nbt-aad.log
+0189-log-nbt-aad-app.log	secret	0	68	5253	0	on -f /net/hu-omap/ cat /dev/shmem/nbt-aad-app.log

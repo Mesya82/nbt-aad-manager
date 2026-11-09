@@ -1,0 +1,8 @@
+total 2967
+drwxrwxrwx  3 root      root           4096 Nov 09 13:39 .
+drwxrwxr-x 13 root      root           4096 Nov 06 12:01 ..
+drwxrwxrwx  2 root      root           4096 Nov 06 12:02 NbtAad.old
+-rwxrwxrwx  1 root      root         773142 Nov 09 10:09 nbt-aad
+-rw-rw-rw-  1 root      root            113 Nov 08 16:41 nbt-aad.env
+-rw-rw-rw-  1 root      root            112 Nov 06 12:08 nbt-aad.env.bak
+-rwxrwxrwx  1 root      root         731847 Nov 06 13:48 nbt-aad.old

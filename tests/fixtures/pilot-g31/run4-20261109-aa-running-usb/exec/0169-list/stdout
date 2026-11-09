@@ -1,0 +1,8 @@
+total 292
+drwxrwxrwx  2 root      root           4096 Nov 09 13:40 .
+drwxrwxrwx  3 root      root           4096 Nov 09 13:39 ..
+-rw-rw-rw-  1 root      root            568 Nov 08 14:57 NbtAad.manifest
+-rw-rw-rw-  1 root      root           7924 Nov 08 14:57 NbtAad.xml
+-rw-rw-rw-  1 root      root          55671 Nov 08 14:57 NbtAad_ALL_Images.zip
+-rw-rw-rw-  1 root      root           4914 Nov 08 14:57 NbtAad_ALL_Texts.zip
+-rw-rw-rw-  1 root      root          71008 Nov 08 14:57 libNbtAad.so

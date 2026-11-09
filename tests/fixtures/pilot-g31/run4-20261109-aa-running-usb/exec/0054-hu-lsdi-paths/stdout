@@ -1,0 +1,6 @@
+      1 drwxrwxrwx  2 root      root              0 Nov 09 13:45 /dev/shmem
+  73418 drwxrwxrwx  3 root      root           4096 Nov 09 13:39 /fs/sda0/opt/aa
+  73418 drwxrwxrwx  3 root      root           4096 Nov 09 13:39 /opt/aa
+  32836 drwxrwxrwx  3 root      root           4096 Nov 09 13:39 /opt/hmi/ID5/data/ro/Plugins
+  16790 drwxrwxrwx  2 root      root           4096 Nov 09 13:40 /opt/hmi/ID5/data/ro/Plugins/NbtAad
+   7929 drwxr-xr-x  2 root      root           4096 Nov 09 13:42 /var/opt/aa

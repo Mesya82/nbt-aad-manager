@@ -1,0 +1,11 @@
+probe_version=3
+implementation=rust
+tool_version=0.0.1
+utc=2026-11-09T13:46:50.84371Z
+target=root@169.254.199.99:22
+hu_node=/net/hu-omap/
+aa_running_user_reported=no
+note=
+host_os=windows x86_64
+algorithm_profile=upstream-documented
+cmd_timeout_s=60

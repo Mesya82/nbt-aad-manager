@@ -1,0 +1,17 @@
+drwxrwxrwx  2 root      root              0 Nov 09 13:45 /dev/shmem
+drwxrwxr-x 10 root      root           4096 Jan 01  2000 /fs/sda0
+drwxrwxr-x 13 root      root           4096 Nov 06 12:01 /fs/sda0/opt
+drwxrwxrwx  3 root      root           4096 Nov 09 13:39 /fs/sda0/opt/aa
+drwxrwxr-x  7 root      root           4096 Nov 06 13:54 /fs/sda1
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 /mnt
+lrwxrwxrwx  1 root      root             12 Nov 09 13:45 /opt -> /fs/sda0/opt
+drwxrwxrwx  3 root      root           4096 Nov 09 13:39 /opt/aa
+drwxrwxr-x  5 root      root           4096 Jan 01  2000 /opt/hmi
+drwxrwxr-x  5 root      root           4096 Jan 01  2000 /opt/hmi/ID5
+drwxrwxr-x  3 root      root           4096 Jan 01  2000 /opt/hmi/ID5/data
+drwxrwxr-x 12 root      root           4096 Nov 06 12:02 /opt/hmi/ID5/data/ro
+drwxrwxrwx  3 root      root           4096 Nov 09 13:39 /opt/hmi/ID5/data/ro/Plugins
+drwxrwxrwx  2 root      root           4096 Nov 09 13:40 /opt/hmi/ID5/data/ro/Plugins/NbtAad
+lrwxrwxrwx  1 root      root              8 Nov 09 13:45 /var -> /fs/sda1
+drwxrwxr-x 10 root      root           4096 Nov 06 12:18 /var/opt
+drwxr-xr-x  2 root      root           4096 Nov 09 13:42 /var/opt/aa

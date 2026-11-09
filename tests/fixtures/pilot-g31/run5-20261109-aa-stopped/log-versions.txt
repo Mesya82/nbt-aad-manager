@@ -1,0 +1,3 @@
+# /dev/shmem/nbt-aad.log rc=0 bytes=14381
+# /dev/shmem/nbt-aad-app.log rc=0 bytes=5253
+  Build: rhmiapp-43-combo (Nov  8 2026 11:54:48)

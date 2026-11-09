@@ -94,6 +94,9 @@ Preserve prior generations; retention controls must be disabled until thoroughly
 - A `mv` between different filesystems is copy plus delete, not an atomic rename. Determine the filesystem of every source/destination pair from observation; treat cross-filesystem moves as multi-step, interruptible operations with their own journal entries.
 - Never execute upstream binaries (`nbt-aad`, `pf_aa`) for probing; `pf_aa --check` writes to `/dev/shmem`.
 - QNX `on` runs a binary directly, with no shell. Built-ins (`echo`, `test`, `kill`, ...) must go through `/bin/sh -c`, or the call fails with status 2. Observed on the pilot head unit.
+- `/fs/sda0` (`/opt/aa`, the plugin tree) is mounted read-only in normal operation (pilot runs 4–5). Upstream's update must remount it read-write, and a restart restores read-only. A write path needs an explicit, journaled remount step with its own rollback, and must fail closed if the remount state is unknown. Writable state (`/var/opt/aa`) is on a different filesystem.
+- `/var/opt/aa/bootguard` is daemon-owned runtime state (it holds the start timestamp, exists only while the daemon runs). Never create, edit or delete it.
+- Log location depends on `usblog` and on whether a stick is inserted, so missing `/dev/shmem` logs are not an error signal.
 - Read-only commands can still disturb a live head unit. A bare `df` (all block devices) stalled for 7–10 s and coincided with an Android Auto disconnect. Device-wide commands are forbidden; every command must name its targets.
 - The pilot head unit has no digest tool (`sha256sum`, `md5`, `cksum`, `openssl` are all absent) and no `sync`. Integrity checks use host-side hashing of `cat` read-backs; write durability needs a verified mechanism before any write path exists.
 - A DSA-only host key is unusable with current OpenSSH; refuse with an explicit diagnosis rather than weakening the client.

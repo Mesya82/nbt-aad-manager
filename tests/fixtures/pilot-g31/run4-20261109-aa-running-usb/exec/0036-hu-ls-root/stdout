@@ -1,0 +1,18 @@
+total 5123313
+lrwxrwxrwx  1 root      root             12 Nov 09 13:45 bin -> /fs/sda0/bin
+drwxr-xr-x  2 root      root             10 Jan 01  1970 boot
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 dev
+lrwxrwxrwx  1 root      root             12 Nov 09 13:45 etc -> /fs/sda0/etc
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 fs
+lrwxrwxrwx  1 root      root             12 Nov 09 13:45 lib -> /fs/sda0/lib
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 mnt
+dr-xr-xr-x  1 root      root              0 Nov 09 13:45 net
+lrwxrwxrwx  1 root      root             12 Nov 09 13:45 opt -> /fs/sda0/opt
+drwxrwxr-x  4 root      root              0 Nov 09 13:45 pps
+dr-xr-xr-x  2 root      root      2623131648 Nov 09 13:45 proc
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 ramdisk
+lrwxrwxrwx  1 root      root             12 Nov 09 13:45 sbin -> /fs/sda0/bin
+dr-xr-xr-x  2 root      root              0 Nov 09 13:45 srv
+lrwxrwxrwx  1 root      root              8 Jan 01  1970 tmp -> /fs/ram5
+drwxr-xr-x  2 root      root             10 Jan 01  1970 usr
+lrwxrwxrwx  1 root      root              8 Nov 09 13:45 var -> /fs/sda1

@@ -1,0 +1,2 @@
+# /dev/shmem/nbt-aad.log rc=1 bytes=0
+# /dev/shmem/nbt-aad-app.log rc=1 bytes=0

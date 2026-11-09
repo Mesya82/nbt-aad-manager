@@ -1,0 +1,28 @@
+path	rc	bytes	sha256	embedded_versions	stderr
+/opt/aa/nbt-aad	0	773142	1ec14876503b0bac597e8871b7099deb334c6401e3696bd2d8cf2db8cbc972b3	Build: v1.9.36-combo	
+/opt/aa/nbt-aad.env	0	113	11619c7e66f7495f810b828fe3b906fe7645ccec871534001ffd8270dbf43845		
+/opt/aa/nbt-aad.env.bak	0	112	a4c75f21c81e7dac38e74ac720cb651defca90f99ea5ff268f58acdf01e0655c		
+/opt/aa/nbt-aad.old	0	731847	8b4b45be0e213f0bc2039c1ae99d1b4775fc70567f364d52111980383412b81c	Build: v1.9.18-osd1281	
+/opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad.manifest	0	568	cc09123717fea5c41698c1ff4c08b4cd5dde620fda1b3d00b0e8699a3c621af2		
+/opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad.xml	0	7924	830f8ae13e0914acc4eb1a3e35c36de72d733cbcfb16d717557ad7f24d67896d	rhmiapp-39	
+/opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad_ALL_Images.zip	0	55671	38539939b8cf14343176e765d82144447918e6f26298f813fa6597381537047c		
+/opt/hmi/ID5/data/ro/Plugins/NbtAad/NbtAad_ALL_Texts.zip	0	4914	05b4bc49f51cf2662b97830947c02faaa03e30f3671f1989d790e292c8049783		
+/opt/hmi/ID5/data/ro/Plugins/NbtAad/libNbtAad.so	0	71008	becea0044b79a683420c16caa32c51cef3d1d4d54a89335071c57b44d57b6b06	rhmiapp-43-combo	
+/opt/aa/NbtAad.old/NbtAad.manifest	0	568	cc09123717fea5c41698c1ff4c08b4cd5dde620fda1b3d00b0e8699a3c621af2		
+/opt/aa/NbtAad.old/NbtAad.xml	0	6713	e051c9bd0668794f23fc707460d27c327d43d0bce1a2e52e7d3b2bcaa69ba585		
+/opt/aa/NbtAad.old/NbtAad_ALL_Images.zip	0	55671	38539939b8cf14343176e765d82144447918e6f26298f813fa6597381537047c		
+/opt/aa/NbtAad.old/NbtAad_ALL_Texts.zip	0	4682	27f23c24c68bb7036be7db271140e4d1ba745c377b34bc3539b964113a756503		
+/opt/aa/NbtAad.old/libNbtAad.so	0	66843	3704116418d8bd6048732c3813126317b34a14774c0792c4a7173e78c6276f15	rhmiapp-36-overlays	
+/var/opt/aa/autostart	0	2	4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865		
+/var/opt/aa/bootguard	0	11	e65efa24ecc4d568a3ddc1afe02eba7721e1b9fe1ce58c7d0ab753829addf55a		
+/var/opt/aa/spp-model	0	15	2c6831dee3e1613c658e1a7546e91406353a272a15d2394455b47b6a3836710c		
+/var/opt/aa/touch-peer	0	21	bd074a3cee40ef50eeac2ba130b8e1d95d44d8c43cd35caf5016b60a3d0b3838		
+/var/opt/aa/usblog	0	2	4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865		
+/opt/aa/nbt-aad	0	773142	1ec14876503b0bac597e8871b7099deb334c6401e3696bd2d8cf2db8cbc972b3	Build: v1.9.36-combo	
+/opt/aa/nbt-aad	0	773142	1ec14876503b0bac597e8871b7099deb334c6401e3696bd2d8cf2db8cbc972b3	Build: v1.9.36-combo	
+/mnt/umass01200t12/NBT-Probe-Marker.txt	1	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855		/mnt/umass01200t12/NBT-Probe-Marker.txt: No such file or directory 
+/mnt/umass01200t12/nbt-probe-marker.txt	1	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855		/mnt/umass01200t12/nbt-probe-marker.txt: No such file or directory 
+/mnt/umass01200t12/NBT-PROBE-MARKER.TXT	1	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855		/mnt/umass01200t12/NBT-PROBE-MARKER.TXT: No such file or directory 
+/mnt/umass01201t4/NBT-Probe-Marker.txt	1	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855		/mnt/umass01201t4/NBT-Probe-Marker.txt: No such file or directory 
+/mnt/umass01201t4/nbt-probe-marker.txt	1	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855		/mnt/umass01201t4/nbt-probe-marker.txt: No such file or directory 
+/mnt/umass01201t4/NBT-PROBE-MARKER.TXT	1	0	e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855		/mnt/umass01201t4/NBT-PROBE-MARKER.TXT: No such file or directory 
