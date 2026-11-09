@@ -11,7 +11,7 @@
 
 ## Project status
 
-**Planning / implementation scaffold only. NOT READY FOR USE ON A VEHICLE.** No installer or updater functionality has been implemented or validated as part of this initial repository. Do not assume examples in the design documents are working commands.
+**Planning / early implementation. NOT READY FOR USE ON A VEHICLE.** No installer or updater functionality exists. The only implemented command is the **read-only** evidence probe (`nbt-aad-manager probe`, see [tools/probe/README.md](tools/probe/README.md)), which makes no writes on the head unit; it has been tested only against simulated head units and generic OpenSSH servers, not yet on a real car. Do not assume examples in the design documents are working commands.
 
 This project aims to build a cross-platform, Rust-based, interactive manager for updating an existing [NBT-AAD](https://github.com/Sq00ky/Supra-iDrive6-Android-Auto) installation on supported BMW/Toyota NBT EVO head units.
 

@@ -1,0 +1,24 @@
+[package]
+name = "nbt-aad-core"
+description = "Platform-independent, sans-IO safety core of NBT-AAD Manager (not ready for vehicle use)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Fake head unit + in-memory sink for tests of dependent crates. Never in releases.
+testkit = []
+
+[dependencies]
+hex = "0.4.3"
+regex = "1.13.1"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["rt", "macros"] }

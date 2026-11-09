@@ -1,9 +1,20 @@
-[package]
-name = "nbt-aad-manager"
-version = "0.0.0"
+[workspace]
+resolver = "3"
+members = ["crates/nbt-aad-core", "crates/nbt-aad-transport-ssh", "crates/nbt-aad-cli"]
+
+[workspace.package]
+version = "0.0.1"
 edition = "2024"
+rust-version = "1.89"
 license = "MIT"
-description = "Experimental Rust CLI for managing NBT-AAD updates (not ready for vehicle use)"
 repository = "https://github.com/Mesya82/nbt-aad-manager"
 
-[dependencies]
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+# RSA/DSA key generation in tests is very slow without optimisation.
+[profile.dev.package."*"]
+opt-level = 2

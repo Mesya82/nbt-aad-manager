@@ -1,0 +1,11 @@
+# Reviewed exceptions only. Each entry must state why the advisory does not
+# apply and when it is re-reviewed. See docs/IMPLEMENTATION_PLAN.md §3.
+[advisories]
+ignore = [
+  # RUSTSEC-2023-0071 (rsa, Marvin attack): timing side-channel in RSA
+  # PRIVATE-KEY operations (decryption/signing). russh 0.65.1 pins
+  # rsa =0.10.0-rc.18. The probe client only VERIFIES the head unit's RSA
+  # host-key signature with its public key and never holds an RSA private
+  # key; only the test-only fake server signs. Re-review on every russh update.
+  "RUSTSEC-2023-0071",
+]

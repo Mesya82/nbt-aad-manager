@@ -1,4 +1,4 @@
-name: Rust scaffold checks (NOT hardware acceptance)
+name: CI (NOT hardware acceptance)
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   rust:
-    name: ${{ matrix.os }} - Rust compile, lint, unit
+    name: ${{ matrix.os }} - fmt, clippy, tests (incl. in-process SSH fake head unit), release build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -21,13 +21,67 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace --all-targets --all-features
-      - run: cargo build --release
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --workspace --all-targets --all-features --locked
+      - run: cargo build --release --locked -p nbt-aad-cli
+
+  security:
+    name: Dependency advisories (cargo audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
+
+  openssh-interop:
+    name: Probe vs real OpenSSH (legacy-restricted + modern sshd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p nbt-aad-cli
+      - run: bash tools/ci/openssh-interop.sh target/release/nbt-aad-manager
+
+  windows-probe-binary:
+    name: Windows probe binary (experimental, read-only) + checksum + provenance
+    needs: [rust, openssh-interop]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p nbt-aad-cli
+      - name: Stage artifact and SHA-256
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target/release/nbt-aad-manager.exe dist/
+          $h = (Get-FileHash dist/nbt-aad-manager.exe -Algorithm SHA256).Hash.ToLower()
+          "$h  nbt-aad-manager.exe" | Out-File -Encoding ascii dist/nbt-aad-manager.exe.sha256
+          "commit $env:GITHUB_SHA" | Out-File -Encoding ascii dist/BUILD-INFO.txt
+          Get-Content dist/nbt-aad-manager.exe.sha256
+      - name: Build provenance attestation
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/nbt-aad-manager.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nbt-aad-manager-windows-x86_64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
 
   probe:
-    name: Read-only probe self-test + fake head-unit sandbox
+    name: Bash probe self-test + fake head-unit sandbox
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +95,7 @@ jobs:
         env:
           REQUIRE_BWRAP: "1"
 
-# IMPORTANT: These checks only verify the minimal initial Rust scaffold.
-# Simulator E2E, fault injection, archive fuzz, coverage and hardware-review
-# gates specified in docs/TEST_STRATEGY.md MUST be added before any live use.
+# IMPORTANT: green CI is NOT hardware acceptance. Only the read-only probe
+# exists. Archive fuzzing, coverage, mutation testing, the full AC-01..AC-44
+# suite and hardware-review gates (docs/TEST_STRATEGY.md) are still required
+# before any vehicle-modifying feature.

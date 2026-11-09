@@ -1,5 +1,54 @@
 # Read-only head-unit probe (Phase 0 evidence)
 
+There are two implementations of the same probe, with identical static plans
+(a CI test enforces this) and identical report layout:
+
+| | Native `nbt-aad-manager probe` (Rust) | `tools/probe/nbt-probe.sh` (bash) |
+| --- | --- | --- |
+| Windows | **native `.exe`, no WSL** | WSL1 only |
+| SSH | built-in (`russh`), one session, a channel per command | system OpenSSH + ControlMaster |
+| Legacy SSH | `--allow-legacy-weak` (DSA, group1, CBC/3DES) | `--allow-ssh-dss` (needs OpenSSH < 10) |
+| Tests | unit + in-process SSH fake head unit (Linux & Windows CI) + real-OpenSSH interop job | bubblewrap sandbox (Linux) |
+
+**On Windows, use the native binary.** The bash probe remains as an independent
+cross-check and for Linux hosts.
+
+## Native Windows binary
+
+1. Open the latest successful CI run of the branch on GitHub (Actions tab, workflow
+   "CI") and download the artifact `nbt-aad-manager-windows-x86_64` (requires a
+   GitHub login). It contains `nbt-aad-manager.exe`, its `.sha256` and the commit.
+2. Verify it in PowerShell:
+   ```powershell
+   Get-FileHash .\nbt-aad-manager.exe -Algorithm SHA256   # must equal the .sha256 file
+   # optional, with GitHub CLI: build provenance tied to this repository and commit
+   gh attestation verify .\nbt-aad-manager.exe -R Mesya82/nbt-aad-manager
+   ```
+   The binary is unsigned (no code-signing certificate); Windows SmartScreen may warn.
+3. Review what it will send: `.\nbt-aad-manager.exe probe --print-commands`
+4. At the car (ENET cable in the laptop's Ethernet port; Windows assigns a
+   169.254.x.x address after about a minute):
+   ```powershell
+   ping 169.254.199.99                      # your head unit's address; never guessed
+   .\nbt-aad-manager.exe probe --host 169.254.199.99
+   ```
+   Answer the prompts (`PROBE`, Android Auto state, note, fingerprint confirmation,
+   password). Output goes to `.\nbt-probe-<UTC>\`.
+5. If it stops with "only offers weak legacy algorithms", and this is your own
+   head unit on a direct cable, rerun with `--allow-legacy-weak`.
+6. For a second run, pin the key from the first run instead of re-confirming:
+   `--host-key "<algorithm> <base64>"` (copy from the first run's `report\known_hosts`).
+
+Exit codes: `0` done, `1` cancelled/invalid input, `2` stopped before login (no
+usable algorithms, host key not obtained/mismatch, login failed), `3` connection
+lost (partial report kept, no reconnect), `4` transcript could not be written,
+`5` internal plan error.
+
+Windows note: `private\` cannot be restricted with Unix permissions; keep the
+output folder in your user profile and don't share it.
+
+## Bash probe
+
 `nbt-probe.sh` collects the facts the manager's design and test suite depend on,
 **without writing anything on the head unit**. Each remote command is recorded
 in a transcript; the transcripts become the pinned QNX fixtures and the

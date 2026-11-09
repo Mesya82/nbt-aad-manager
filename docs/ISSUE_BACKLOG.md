@@ -10,7 +10,8 @@ Create issues only after the repository exists. Do not mark anything done from d
 | P0 | Define profile, transport and capability interfaces | Audit | Typed model and explicit unsupported/unknown states |
 | P0 | Transcript recorder + replay transport | Interfaces | Record-before-return decorator; replay reproduces plans/refusals (AC-44) |
 | P1 | Cargo workspace with sans-IO `nbt-aad-core` | Interfaces | Core has no network/process/fs side effects; CLI is a thin adapter |
-| P1 | Choose embeddable SSH library | Probe evidence | Verified against recorded server algorithm proposal; legacy algorithms per profile only |
+| P1 | Choose embeddable SSH library | Probe evidence | Verified against recorded server algorithm proposal; legacy algorithms per profile only. *Candidate implemented: `russh` 0.65.1 (tests + OpenSSH interop); final confirmation needs the pilot head unit's KEXINIT.* |
+| P0 | Native read-only probe (`nbt-aad-manager probe`) | Workspace, SSH library | Identical static plan to bash probe (CI parity test); in-process SSH fake-HU tests on Linux/Windows; real-OpenSSH interop job |
 | P0 | Build stateful simulated QNX/SSH/USB head unit | Interfaces | Model filesystem, process state, mount, storage, reboot, failure injection |
 | P0 | Implement safety invariant tests AC-01..AC-44 | Simulator | Stable tests with state assertions and pass/fail traceability |
 | P1 | GitHub release discovery + immutable asset provenance | Audit | Arbitrary tag names, incomplete releases, pagination, failure tests |

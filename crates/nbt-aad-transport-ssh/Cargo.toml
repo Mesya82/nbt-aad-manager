@@ -1,0 +1,31 @@
+[package]
+name = "nbt-aad-transport-ssh"
+description = "SSH implementation of the NBT-AAD Manager head-unit transport (not ready for vehicle use)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# In-process fake head-unit SSH server for tests. Never in releases.
+testkit = ["nbt-aad-core/testkit", "dep:rand"]
+
+[dependencies]
+rand = { version = "0.10", features = ["thread_rng"], optional = true }
+nbt-aad-core = { version = "0.0.1", path = "../nbt-aad-core" }
+russh = { version = "0.65.1", default-features = false, features = ["ring", "rsa", "dsa", "des"] }
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["rt", "net", "time", "macros", "io-util", "sync"] }
+zeroize = "1.9.1"
+
+[dev-dependencies]
+nbt-aad-core = { path = "../nbt-aad-core", features = ["testkit"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread"] }
+
+[[test]]
+name = "fake_head_unit"
+required-features = ["testkit"]
