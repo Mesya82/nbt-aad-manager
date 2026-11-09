@@ -26,3 +26,5 @@ probe-runs/
 fuzz/target/
 fuzz/artifacts/
 fuzz/coverage/
+# Synthetic fuzz seeds only (no upstream content).
+!fuzz/corpus/read_zip/*.zip
