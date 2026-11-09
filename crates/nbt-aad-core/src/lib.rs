@@ -9,6 +9,7 @@ pub mod guard;
 pub mod kexinit;
 pub mod probe;
 pub mod redact;
+pub mod release;
 #[cfg(any(test, feature = "testkit"))]
 pub mod testkit;
 pub mod transport;
