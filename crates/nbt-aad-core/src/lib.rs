@@ -8,6 +8,7 @@
 pub mod guard;
 pub mod kexinit;
 pub mod probe;
+pub mod profile;
 pub mod redact;
 pub mod release;
 #[cfg(any(test, feature = "testkit"))]
