@@ -389,6 +389,19 @@ pub fn parse_ls(output: &str) -> Vec<LsEntry> {
     out
 }
 
+/// Directory names in an `ls -la` listing (exactly 9 fields, type `d`,
+/// excluding `.` and `..`). Names with spaces are not returned.
+pub fn parse_ls_dirs(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let f: Vec<&str> = line.split_ascii_whitespace().collect();
+            (f.len() == 9 && f[0].starts_with('d') && f[8] != "." && f[8] != "..")
+                .then(|| f[8].to_owned())
+        })
+        .collect()
+}
+
 /// Version markers embedded in binaries (`strings -n 6` + pattern), unique, sorted.
 pub fn embedded_versions(data: &[u8]) -> Vec<String> {
     static RX: LazyLock<Regex> = LazyLock::new(|| {

@@ -8,9 +8,10 @@
 use std::collections::BTreeSet;
 
 use crate::guard::{Context, GuardedCommand, NodePath, SafePath};
-use crate::probe::{LsEntry, guarded_plan, parse_ls};
+use crate::probe::{LsEntry, guarded_plan, parse_ls, parse_ls_dirs};
 use crate::profile::{
-    HeadUnitProfile, InstallState, Mismatch, Observation, Rec, classify_in, ids, match_profile,
+    HeadUnitProfile, InstallState, Mismatch, OPS_ROOT_ID, Observation, OpBackup, Rec, classify_in,
+    classify_ops, ids, is_op_id, match_profile, op_record_id,
 };
 use crate::release::{KnownRelease, PLUGIN_FILES};
 use crate::transport::{
@@ -54,7 +55,12 @@ pub struct InspectReport {
     pub state: Option<InstallState>,
     pub executed: u32,
     pub readbacks: u32,
+    /// Operation directories and the backups they hold (profile match only).
+    pub ops: Option<Result<Vec<OpBackup>, String>>,
 }
+
+/// At most this many operation directories are inspected.
+pub const MAX_OPS: usize = 16;
 
 /// Probe-plan ids the inspection runs, in plan order.
 pub fn plan_ids(p: &HeadUnitProfile) -> BTreeSet<&'static str> {
@@ -198,15 +204,155 @@ where
         }
     }
 
+    if shell_ok {
+        readbacks += inspect_ops(rec, p, &node, cfg, &mut o).await?;
+    }
+
     let profile = match_profile(p, &o);
     let state = profile.is_ok().then(|| classify_in(p, &o, table));
+    let ops = profile.is_ok().then(|| classify_ops(p, &o, table));
     Ok(InspectReport {
         observation: o,
         profile,
         state,
         executed: rec.executed(),
         readbacks,
+        ops,
     })
+}
+
+async fn text<T: HeadUnitTransport, S: TranscriptSink>(
+    rec: &mut Recorder<T, S>,
+    node: &NodePath,
+    cfg: &InspectConfig,
+    o: &mut Observation,
+    id: String,
+    path: &str,
+) -> Result<bool, InspectError> {
+    let Some(sp) = SafePath::new(path) else {
+        return Ok(false);
+    };
+    let cmd = GuardedCommand::ls_la(Context::Node(node.clone()), &sp)
+        .map_err(|e| InspectError::Plan(e.to_string()))?;
+    let r = exec(rec, &id, Policy::Text, &cmd, cfg.text_limits).await?;
+    let Some(r) = r.filter(|r| r.stdout_dropped == 0) else {
+        return Ok(false);
+    };
+    let ok = r.outcome.is_success();
+    o.records.insert(
+        id,
+        Rec {
+            rc: rc_of(&r.outcome),
+            stdout: String::from_utf8_lossy(&r.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&r.stderr).into_owned(),
+        },
+    );
+    Ok(ok)
+}
+
+async fn cat_files<T: HeadUnitTransport, S: TranscriptSink>(
+    rec: &mut Recorder<T, S>,
+    node: &NodePath,
+    cfg: &InspectConfig,
+    o: &mut Observation,
+    listing_id: &str,
+    dir: &str,
+    names: &[&str],
+) -> Result<u32, InspectError> {
+    let Some(listing) = o.records.get(listing_id).filter(|r| r.rc == 0) else {
+        return Ok(0);
+    };
+    let files: Vec<String> = parse_ls(&listing.stdout)
+        .into_iter()
+        .filter_map(|e| match e {
+            LsEntry::File {
+                name,
+                size: Some(s),
+            } if names.contains(&name.as_str()) && s <= cfg.max_readback_bytes => Some(name),
+            _ => None,
+        })
+        .collect();
+    let mut n = 0;
+    for name in files {
+        let path = format!("{dir}/{name}");
+        let Some(sp) = SafePath::new(&path) else {
+            continue;
+        };
+        let cmd = GuardedCommand::cat(Context::Node(node.clone()), &sp)
+            .map_err(|e| InspectError::Plan(e.to_string()))?;
+        let policy = Policy::Binary {
+            label: format!("inspect{path}"),
+        };
+        let r = exec(rec, "readback", policy, &cmd, cfg.readback_limits).await?;
+        n += 1;
+        if let Some(r) = r.filter(|r| r.outcome.is_success() && r.stdout_dropped == 0) {
+            o.digests
+                .insert(path, (r.stdout.len() as u64, sha256_hex(&r.stdout)));
+        }
+    }
+    Ok(n)
+}
+
+/// List `<daemon_dir>/nbt-aad-ops` (only if the daemon directory shows it)
+/// and read back each operation's saved release.
+async fn inspect_ops<T: HeadUnitTransport, S: TranscriptSink>(
+    rec: &mut Recorder<T, S>,
+    p: &HeadUnitProfile,
+    node: &NodePath,
+    cfg: &InspectConfig,
+    o: &mut Observation,
+) -> Result<u32, InspectError> {
+    let has_root = o
+        .records
+        .get(ids::LS_DAEMON_DIR)
+        .filter(|r| r.rc == 0)
+        .is_some_and(|r| parse_ls_dirs(&r.stdout).iter().any(|d| d == "nbt-aad-ops"));
+    if !has_root {
+        return Ok(0);
+    }
+    let root = format!("{}/nbt-aad-ops", p.daemon_dir);
+    if !text(rec, node, cfg, o, OPS_ROOT_ID.into(), &root).await? {
+        return Ok(0);
+    }
+    let ops: Vec<String> = o
+        .records
+        .get(OPS_ROOT_ID)
+        .map(|r| parse_ls_dirs(&r.stdout))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| is_op_id(d))
+        .take(MAX_OPS)
+        .collect();
+    let mut n = 0;
+    for op in ops {
+        let dir = format!("{root}/{op}");
+        let old = format!("{dir}/old");
+        let oldp = format!("{old}/NbtAad");
+        text(rec, node, cfg, o, op_record_id(&op, "dir"), &dir).await?;
+        text(rec, node, cfg, o, op_record_id(&op, "old"), &old).await?;
+        text(rec, node, cfg, o, op_record_id(&op, "old-plugin"), &oldp).await?;
+        n += cat_files(
+            rec,
+            node,
+            cfg,
+            o,
+            &op_record_id(&op, "old"),
+            &old,
+            &[p.daemon_name],
+        )
+        .await?;
+        n += cat_files(
+            rec,
+            node,
+            cfg,
+            o,
+            &op_record_id(&op, "old-plugin"),
+            &oldp,
+            &PLUGIN_FILES,
+        )
+        .await?;
+    }
+    Ok(n)
 }
 
 /// Overall verdict for exit codes and summaries.
@@ -323,6 +469,27 @@ remote commands executed: {} (read-backs: {})
                     s.push_str(&format!(
                         "  - {w}
 "
+                    ));
+                }
+            }
+        }
+        match &self.ops {
+            None => {}
+            Some(Err(e)) => s.push_str(&format!("operation backups: UNKNOWN ({e})\n")),
+            Some(Ok(v)) if v.is_empty() => s.push_str("operation backups: none\n"),
+            Some(Ok(v)) => {
+                s.push_str("operation backups:\n");
+                for b in v {
+                    let what = match &b.backup {
+                        crate::profile::Backup::Known(k) => format!("VERIFIED {}", k.tag),
+                        crate::profile::Backup::None => "none".into(),
+                        crate::profile::Backup::NotIdentified(why) => {
+                            format!("NOT identified ({})", why.join("; "))
+                        }
+                    };
+                    s.push_str(&format!(
+                        "  {}  complete={}  backup: {what}\n",
+                        b.op_id, b.complete
                     ));
                 }
             }

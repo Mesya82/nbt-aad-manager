@@ -5,7 +5,9 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use super::*;
-use crate::profile::{Backup, Evidence, Fact, PILOT_G31, Remount, RunOn, WritableExpectation};
+use crate::profile::{
+    Backup, Evidence, Fact, OpBackup, PILOT_G31, Remount, RunOn, WritableExpectation,
+};
 use crate::release::{FileDigest, KNOWN};
 use crate::testkit::{FakeHu, MemSink, Node};
 use crate::transport::ExecResult;
@@ -482,4 +484,110 @@ fn replayed_absent_backup_uses_the_real_qnx_answer() {
         rec_old,
         PILOT_G31.plugin_backup_dir
     ));
+}
+
+// ---- operation backups (nbt-aad-ops) ----
+
+const OPID: &str = "20261109T170000Z-abc123";
+
+/// The updated unit plus one operation directory holding `old` as backup.
+fn unit_with_op(complete: bool, drop_plugin_file: Option<&str>) -> FakeHu {
+    let mut hu = updated_unit();
+    let root = "/opt/aa/nbt-aad-ops";
+    let op = format!("{root}/{OPID}");
+    for d in [
+        root.to_owned(),
+        op.clone(),
+        format!("{op}/old"),
+        format!("{op}/old/NbtAad"),
+        format!("{op}/new"),
+    ] {
+        hu.fs.insert(d, Node::Dir);
+    }
+    hu.fs.insert(
+        format!("{op}/old/nbt-aad"),
+        Node::File(content("old", "nbt-aad")),
+    );
+    for n in PLUGIN_FILES {
+        if Some(n) != drop_plugin_file {
+            hu.fs.insert(
+                format!("{op}/old/NbtAad/{n}"),
+                Node::File(content("old", n)),
+            );
+        }
+    }
+    if complete {
+        hu.fs.insert(
+            format!("{op}/COMPLETE"),
+            Node::File(crate::plan::complete_marker(OPID).into_bytes()),
+        );
+    }
+    hu
+}
+
+fn ops_of(r: &InspectReport) -> Vec<OpBackup> {
+    r.ops.clone().expect("profile matched").expect("ops listed")
+}
+
+#[test]
+fn completed_operation_backup_is_verified() {
+    let (r, hu) = inspect_fake(unit_with_op(true, None));
+    let ops = ops_of(&r);
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0].op_id, OPID);
+    assert!(ops[0].complete);
+    assert!(matches!(&ops[0].backup, Backup::Known(k) if k.tag == "old"));
+    assert!(
+        r.render(&fake_profile())
+            .contains(&format!("{OPID}  complete=true  backup: VERIFIED old"))
+    );
+    // Read-only: the fake unit is unchanged.
+    assert_eq!(hu.snapshot(), unit_with_op(true, None).snapshot());
+}
+
+#[test]
+fn incomplete_or_unmarked_operations_are_not_verified() {
+    let (r, _) = inspect_fake(unit_with_op(false, None));
+    assert!(!ops_of(&r)[0].complete);
+    let (r, _) = inspect_fake(unit_with_op(true, Some("NbtAad.xml")));
+    assert!(matches!(ops_of(&r)[0].backup, Backup::NotIdentified(_)));
+}
+
+#[test]
+fn foreign_names_under_the_ops_root_are_reported_not_read() {
+    let mut hu = unit_with_op(true, None);
+    hu.fs
+        .insert("/opt/aa/nbt-aad-ops/manual-backup".into(), Node::Dir);
+    hu.fs.insert(
+        "/opt/aa/nbt-aad-ops/manual-backup/nbt-aad".into(),
+        Node::File(b"x".to_vec()),
+    );
+    let (r, hu) = inspect_fake(hu);
+    let ops = ops_of(&r);
+    let foreign = ops.iter().find(|o| o.op_id == "manual-backup").unwrap();
+    assert!(matches!(foreign.backup, Backup::NotIdentified(_)));
+    assert!(!hu.seen.iter().any(|c| c.contains("manual-backup")));
+}
+
+#[test]
+fn without_an_ops_root_nothing_extra_is_sent() {
+    let (r, hu) = inspect_fake(updated_unit());
+    assert_eq!(ops_of(&r), vec![]);
+    assert!(!hu.seen.iter().any(|c| c.contains("nbt-aad-ops")));
+    assert!(
+        r.render(&fake_profile())
+            .contains("operation backups: none")
+    );
+}
+
+#[test]
+fn profile_mismatch_means_no_ops_claim_and_no_ops_reads() {
+    let mut hu = unit_with_op(true, None);
+    hu.fs.insert(
+        "/opt/sys/etc/nbt_version.txt".into(),
+        Node::File(b"X\n".to_vec()),
+    );
+    let (r, hu) = inspect_fake(hu);
+    assert_eq!(r.ops, None);
+    assert!(!hu.seen.iter().any(|c| c.contains("nbt-aad-ops")));
 }

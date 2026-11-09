@@ -608,5 +608,118 @@ pub fn classify_in(
     InstallState::Verified { installed, backup }
 }
 
+/// Record id prefix for dynamic listings of operation directories.
+pub fn op_record_id(op: &str, what: &str) -> String {
+    format!("op:{op}:{what}")
+}
+
+pub const OPS_ROOT_ID: &str = "ops-root";
+
+/// One operation directory under `<daemon_dir>/nbt-aad-ops/`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpBackup {
+    pub op_id: String,
+    /// `COMPLETE` marker present in the operation directory.
+    pub complete: bool,
+    /// The previous release saved by the operation (`<op>/old`).
+    pub backup: Backup,
+}
+
+/// Valid operation id (same shape as `plan`).
+pub fn is_op_id(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 23
+        && b[..8].iter().all(u8::is_ascii_digit)
+        && b[8] == b'T'
+        && b[9..15].iter().all(u8::is_ascii_digit)
+        && b[15] == b'Z'
+        && b[16] == b'-'
+        && b[17..]
+            .iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+}
+
+/// Identify the backups held in operation directories. Op directories are
+/// taken from the `ops-root` listing; names that are not operation ids are
+/// reported as not identified (never read). Fails closed per operation.
+pub fn classify_ops(
+    p: &HeadUnitProfile,
+    o: &Observation,
+    table: &'static [KnownRelease],
+) -> Result<Vec<OpBackup>, String> {
+    let root = format!("{}/nbt-aad-ops", p.daemon_dir);
+    let Some(r) = o.rec(OPS_ROOT_ID) else {
+        return Ok(Vec::new());
+    };
+    if listing_says_absent(r, &root) {
+        return Ok(Vec::new());
+    }
+    if r.rc != 0 {
+        return Err(format!("listing of {root} failed (rc {})", r.rc));
+    }
+    let mut out = Vec::new();
+    for name in crate::probe::parse_ls_dirs(&r.stdout) {
+        if !is_op_id(&name) {
+            out.push(OpBackup {
+                op_id: name,
+                complete: false,
+                backup: Backup::NotIdentified(vec!["not an operation id; not read".into()]),
+            });
+            continue;
+        }
+        let dir = format!("{root}/{name}");
+        let complete = o
+            .rec(&op_record_id(&name, "dir"))
+            .filter(|r| r.rc == 0)
+            .is_some_and(|r| {
+                parse_ls(&r.stdout)
+                    .iter()
+                    .any(|e| matches!(e, LsEntry::File { name, .. } if name == "COMPLETE"))
+            });
+        let files = |what: &str, path: &str| -> Result<Vec<(String, u64)>, String> {
+            match o.rec(&op_record_id(&name, what)) {
+                None => Err(format!("{path} not observed")),
+                Some(r) if r.rc != 0 => Err(format!("{path} not listed (rc {})", r.rc)),
+                Some(r) => Ok(parse_ls(&r.stdout)
+                    .into_iter()
+                    .filter_map(|e| match e {
+                        LsEntry::File {
+                            name,
+                            size: Some(s),
+                        } => Some((name, s)),
+                        _ => None,
+                    })
+                    .collect()),
+            }
+        };
+        let backup = (|| -> Result<Backup, String> {
+            let old_dir = format!("{dir}/old");
+            let daemon = files("old", &old_dir)?;
+            let (_, dsize) = daemon
+                .iter()
+                .find(|(n, _)| n == p.daemon_name)
+                .ok_or("no daemon in the operation backup")?;
+            let d = observed(o, &old_dir, p.daemon_name, "nbt-aad", *dsize)?;
+            let plugin_dir = format!("{old_dir}/NbtAad");
+            let pl = plugin_set(o, &plugin_dir, &files("old-plugin", &plugin_dir)?)?;
+            Ok(match release::identify_in(table, &d, &pl) {
+                Identification::Known(k) => Backup::Known(k),
+                Identification::Mixed { daemon, plugin } => Backup::NotIdentified(vec![format!(
+                    "mixed: daemon {}, plugin {}",
+                    daemon.tag, plugin.tag
+                )]),
+                Identification::Unknown(why) => Backup::NotIdentified(why),
+            })
+        })()
+        .unwrap_or_else(|e| Backup::NotIdentified(vec![e]));
+        out.push(OpBackup {
+            op_id: name,
+            complete,
+            backup,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests;
