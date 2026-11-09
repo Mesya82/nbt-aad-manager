@@ -1,0 +1,45 @@
+
+NBT-AAD Manager READ-ONLY probe v2 (nbt-aad-cli 0.0.1)
+Target: root@169.254.199.99:22   HU node: /net/hu-omap/
+Output: .\nbt-probe-20261109T125641Z
+
+Preconditions (you confirm):
+  - vehicle is parked; you control power; nobody is driving
+  - SSH on the head unit is ALREADY enabled (this tool does not enable it)
+  - you have NOT remounted anything read-write in another session
+This tool makes NO writes on the head unit. Review commands with --print-commands.
+NOTE (Windows): the private\ folder cannot be permission-restricted by this tool.
+Keep the output folder inside your user profile and do not share it.
+Type PROBE to continue: <answer not logged>
+Is Android Auto currently running on the head unit? (yes/no/unknown): <answer not logged>
+Optional free-text note for this run (e.g. 'after fresh boot'): <answer not logged>
+==> Capturing server SSH algorithm proposal (no login)
+banner: SSH-2.0-OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6
+kex: diffie-hellman-group-exchange-sha256,diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1,diffie-hellman-group1-sha1
+host_key: ssh-rsa,ssh-dss
+cipher_ctos: aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-cbc,3des-cbc,blowfish-cbc,cast128-cbc,aes192-cbc,aes256-cbc,arcfour,rijndael-cbc@lysator.liu.se
+cipher_stoc: aes128-ctr,aes192-ctr,aes256-ctr,arcfour256,arcfour128,aes128-cbc,3des-cbc,blowfish-cbc,cast128-cbc,aes192-cbc,aes256-cbc,arcfour,rijndael-cbc@lysator.liu.se
+mac_ctos: hmac-md5,hmac-sha1,hmac-ripemd160,hmac-ripemd160@openssh.com,hmac-sha1-96,hmac-md5-96
+mac_stoc: hmac-md5,hmac-sha1,hmac-ripemd160,hmac-ripemd160@openssh.com,hmac-sha1-96,hmac-md5-96
+compression_ctos: none,zlib@openssh.com
+compression_stoc: none,zlib@openssh.com
+first_kex_packet_follows: false
+
+client profile: upstream-documented
+client group-exchange prime range: 2048..8192 bits (preferred 3072)
+negotiated kex=diffie-hellman-group-exchange-sha256
+negotiated host_key=ssh-rsa (WEAK)
+negotiated cipher=aes256-ctr
+negotiated cipher_stoc_accepts=aes256-ctr
+negotiated mac_ctos=hmac-sha1 (WEAK)
+negotiated mac_stoc=hmac-sha1 (WEAK)
+negotiated compression_ctos=none
+negotiated compression_stoc=none
+
+==> Fetching host key
+Host key: ssh-rsa SHA256:ccBSjAKu0zGcw8z2GuJpODkfbHkHFg+6hJRdU9HjB2Q
+Pinned for this probe only (in .\nbt-probe-20261109T125641Z\report\known_hosts).
+You are directly cabled to your own car and accept this fingerprint? (yes/no): <answer not logged>
+==> Logging in
+==> Running probes
+162 remote commands executed and recorded (on-node context works: false).

@@ -8,6 +8,7 @@
 pub mod guard;
 pub mod inspect;
 pub mod kexinit;
+pub mod plan;
 pub mod probe;
 pub mod profile;
 pub mod redact;

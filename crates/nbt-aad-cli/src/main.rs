@@ -1,6 +1,7 @@
 //! NBT-AAD Manager CLI. Only the READ-ONLY `probe` command and host-side
 //! `release` commands exist; no vehicle-modifying functionality is implemented.
 
+mod plan_cmd;
 mod probe_cmd;
 mod release_cmd;
 mod sink;
@@ -29,6 +30,8 @@ enum Command {
     /// installed release by exact digests (exit 0 verified, 6 profile
     /// mismatch, 7 not verified). Same SSH options as `probe`.
     Inspect(ProbeArgs),
+    /// Offline dry-run of an update: prints every step, executes nothing.
+    Plan(plan_cmd::PlanArgs),
     /// Pinned upstream releases: list, fetch and verify (host-side only).
     #[command(subcommand)]
     Release(release_cmd::ReleaseCmd),
@@ -83,5 +86,6 @@ fn main() -> ExitCode {
         Some(Command::Probe(args)) => probe_cmd::main(args, probe_cmd::Mode::Probe),
         Some(Command::Inspect(args)) => probe_cmd::main(args, probe_cmd::Mode::Inspect),
         Some(Command::Release(cmd)) => release_cmd::main(cmd),
+        Some(Command::Plan(a)) => plan_cmd::main(a),
     }
 }

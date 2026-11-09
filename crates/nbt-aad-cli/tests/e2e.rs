@@ -467,3 +467,46 @@ fn inspect_print_commands_matches_core_plan() {
         .unwrap();
     assert_eq!(o.status.code(), Some(1));
 }
+
+#[test]
+fn plan_is_an_offline_dry_run() {
+    let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args([
+            "plan",
+            "--installed",
+            "gps",
+            "--backup",
+            "volsliderfixforreal",
+            "--target",
+            "volsliderfixforreal",
+            "--usb",
+            "/mnt/umass01200t12",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let s = String::from_utf8(o.stdout).unwrap();
+    assert!(s.starts_with("OFFLINE DRY-RUN"));
+    assert!(s.contains("UPDATE PLAN (NOT EXECUTED"));
+    assert!(s.contains("mv /opt/aa/nbt-aad /opt/aa/nbt-aad-ops/"));
+    for (args, why) in [
+        (["gps", "gps", "/mnt/umass01200t12"], "already installed"),
+        (["gps", "brwsr-ap", "/mnt/umass01200t12"], "not a pinned"),
+        (["gps", "volsliderfixforreal", "/fs/usb0"], "invalid USB"),
+    ] {
+        let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+            .args([
+                "plan",
+                "--installed",
+                args[0],
+                "--target",
+                args[1],
+                "--usb",
+                args[2],
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(2), "{why}");
+        assert!(String::from_utf8_lossy(&o.stderr).contains(why), "{why}");
+    }
+}

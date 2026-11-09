@@ -28,3 +28,6 @@ fuzz/artifacts/
 fuzz/coverage/
 # Synthetic fuzz seeds only (no upstream content).
 !fuzz/corpus/read_zip/*.zip
+# Fixture transcripts must be complete (redacted console; secret-policy records hold metadata only).
+!tests/fixtures/**/console.log
+!tests/fixtures/**/exec/*.log/
