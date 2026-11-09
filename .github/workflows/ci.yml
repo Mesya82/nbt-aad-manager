@@ -47,7 +47,7 @@ jobs:
       - run: bash tools/ci/openssh-interop.sh target/release/nbt-aad-manager
 
   windows-probe-binary:
-    name: Windows probe binary (experimental, read-only) + checksum + provenance
+    name: Windows binary (experimental; read-only except the approved experiment-e1) + checksum + provenance
     needs: [rust, openssh-interop]
     runs-on: windows-latest
     permissions:
