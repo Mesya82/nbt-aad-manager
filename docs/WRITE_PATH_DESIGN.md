@@ -52,6 +52,18 @@ Notes:
 - **Durability.** There's no `sync` on hu-omap (run 2), and qnx6 commits filesystem snapshots on its own schedule. **EVIDENCE NEEDED:** what state survives a power cut a few seconds after a `mv`? Until that's known, the tool requires the operator to wait a fixed settle time before restarting, and the post-restart `inspect` must re-verify everything.
 - **Backup retention.** `…/<op>/old/` is a complete, digest-verified backup that is never deleted automatically. Cleanup is a separate, explicit, later command (rule 7).
 
+### Simulated so far (no hardware)
+
+`crates/nbt-aad-core/src/plan/tests/sim.rs` runs the plan against `testkit::sim::SimFs`. The model is read-only until the remount, and `mv` or `cp` onto an existing path is an error.
+
+The tests cover:
+- the full apply, with every `verify` holding;
+- an interruption after **each single mutation**, where the state is classified as `Verified(old)`, `MidUpdate`, `Mixed(new daemon, old plugin)` or `Verified(new)`, and foreign backups and env stay byte-identical;
+- state-driven recovery from every interruption point, which restores the original install byte for byte;
+- a second operation with an existing ops root.
+
+A manual mutation check of the plan killed all 8 mutants. The model assumes that each `mv` and `cp` is all-or-nothing, which is exactly what the hardware evidence in section 6 must confirm or refute.
+
 ## 4. Command allowlist for mutations (to be implemented as a separate type)
 
 The read-only `GuardedCommand` will **never** admit these. A new `MutatingCommand` type will be constructible only from typed plan steps, accepted only by an apply-mode transport method that requires an explicit consent token. Exact shapes:

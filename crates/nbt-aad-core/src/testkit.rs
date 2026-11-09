@@ -3,6 +3,8 @@
 //! never part of a release build.
 #![allow(clippy::unwrap_used)]
 
+pub mod sim;
+
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 

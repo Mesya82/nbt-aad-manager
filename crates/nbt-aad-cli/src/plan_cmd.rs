@@ -22,6 +22,9 @@ pub struct PlanArgs {
     /// USB mount on the head unit as listed by inspect/probe (e.g. /mnt/umass01200t12).
     #[arg(long)]
     pub usb: String,
+    /// /opt/aa/nbt-aad-ops already exists (from an earlier operation).
+    #[arg(long)]
+    pub ops_root_exists: bool,
 }
 
 fn op_id() -> String {
@@ -59,7 +62,15 @@ pub fn main(a: PlanArgs) -> ExitCode {
         },
     };
     let state = InstallState::Verified { installed, backup };
-    match plan_update(&PILOT_G31, &state, &a.target, KNOWN, &op_id(), &a.usb) {
+    match plan_update(
+        &PILOT_G31,
+        &state,
+        &a.target,
+        KNOWN,
+        &op_id(),
+        &a.usb,
+        a.ops_root_exists,
+    ) {
         Ok(p) => {
             println!("OFFLINE DRY-RUN: installed state taken from the arguments, not observed.");
             println!("Nothing is executed; no apply path exists in this version.\n");

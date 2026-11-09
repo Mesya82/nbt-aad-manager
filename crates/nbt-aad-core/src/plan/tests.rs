@@ -22,6 +22,7 @@ fn plan() -> UpdatePlan {
         KNOWN,
         OP,
         USB,
+        false,
     )
     .unwrap()
 }
@@ -187,11 +188,11 @@ fn refusals() {
     let ok = gps_with_backup();
     let p = &PILOT_G31;
     assert!(matches!(
-        plan_update(p, &ok, "gps", KNOWN, OP, USB),
+        plan_update(p, &ok, "gps", KNOWN, OP, USB, false),
         Err(E::AlreadyInstalled(_))
     ));
     assert!(matches!(
-        plan_update(p, &ok, "brwsr-ap", KNOWN, OP, USB),
+        plan_update(p, &ok, "brwsr-ap", KNOWN, OP, USB, false),
         Err(E::UnknownTarget(_))
     ));
     for bad in [
@@ -203,7 +204,7 @@ fn refusals() {
     ] {
         assert!(
             matches!(
-                plan_update(p, &ok, "volsliderfixforreal", KNOWN, bad, USB),
+                plan_update(p, &ok, "volsliderfixforreal", KNOWN, bad, USB, false),
                 Err(E::BadOpId(_))
             ),
             "{bad}"
@@ -218,7 +219,7 @@ fn refusals() {
     ] {
         assert!(
             matches!(
-                plan_update(p, &ok, "volsliderfixforreal", KNOWN, OP, bad),
+                plan_update(p, &ok, "volsliderfixforreal", KNOWN, OP, bad, false),
                 Err(E::BadUsbMount(_))
             ),
             "{bad}"
@@ -237,10 +238,12 @@ fn refusals() {
     ] {
         assert!(
             matches!(
-                plan_update(p, &st, "volsliderfixforreal", KNOWN, OP, USB),
+                plan_update(p, &st, "volsliderfixforreal", KNOWN, OP, USB, false),
                 Err(E::NotVerified(_))
             ),
             "{st:?}"
         );
     }
 }
+
+mod sim;

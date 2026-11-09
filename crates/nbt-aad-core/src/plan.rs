@@ -139,6 +139,7 @@ pub fn plan_update(
     table: &'static [KnownRelease],
     op_id: &str,
     usb_mount: &str,
+    ops_root_exists: bool,
 ) -> Result<UpdatePlan, PlanError> {
     let (from, backup) = match state {
         InstallState::Verified { installed, backup } => (*installed, backup),
@@ -180,12 +181,15 @@ pub fn plan_update(
     steps.push(Step {
         id: "S2",
         purpose: "create the operation directories (the ops root only if absent)",
-        mutations: vec![
-            Mutation::Mkdir(root.clone()),
-            Mutation::Mkdir(op.clone()),
-            Mutation::Mkdir(new.clone()),
-            Mutation::Mkdir(format!("{new}/NbtAad")),
-        ],
+        mutations: (!ops_root_exists)
+            .then(|| Mutation::Mkdir(root.clone()))
+            .into_iter()
+            .chain([
+                Mutation::Mkdir(op.clone()),
+                Mutation::Mkdir(new.clone()),
+                Mutation::Mkdir(format!("{new}/NbtAad")),
+            ])
+            .collect(),
         verify: vec![
             Verify::DirExists(new.clone()),
             Verify::DirExists(format!("{new}/NbtAad")),
