@@ -365,3 +365,105 @@ fn release_fetch_refuses_unpinned_tags_and_titles_without_network() {
     }
     assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
 }
+
+fn run_inspect(e: &Env, stdin: &str) -> (i32, String, PathBuf) {
+    let port = e.server.addr.port().to_string();
+    let out = e.dir.path().to_str().unwrap().to_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args([
+            "inspect",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port,
+            "--password-stdin",
+            "--cmd-timeout",
+            "5",
+            "--out",
+            &out,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let o = child.wait_with_output().unwrap();
+    let dir = std::fs::read_dir(e.dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|d| d.path())
+        .find(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("nbt-inspect-")
+        })
+        .expect("inspect dir");
+    (
+        o.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&o.stderr).into_owned(),
+        dir,
+    )
+}
+
+#[test]
+fn inspect_on_a_non_matching_unit_claims_nothing_and_changes_nothing() {
+    let e = env(ServerOptions::default());
+    let before = e.server.hu.lock().unwrap().snapshot();
+    let (code, console, dir) = run_inspect(&e, "test-password\nINSPECT\nno\ne2e\nyes\n");
+    assert_eq!(code, 6, "{console}");
+    let text = std::fs::read_to_string(dir.join("report/inspect.txt")).unwrap();
+    assert!(text.contains("profile match: NO"), "{text}");
+    assert!(!text.contains("install state"), "{text}");
+    // Every executed command has a transcript record.
+    let recs = std::fs::read_dir(dir.join("report/exec")).unwrap().count();
+    let log = std::fs::read_to_string(dir.join("report/exec-log.tsv")).unwrap();
+    assert_eq!(log.lines().count(), recs);
+    assert_eq!(e.server.received.lock().unwrap().len(), recs);
+    // Only commands from the inspection plan plus cat read-backs were sent.
+    let plan: Vec<String> = nbt_aad_core::inspect::plan(&nbt_aad_core::profile::PILOT_G31)
+        .unwrap()
+        .into_iter()
+        .map(|(_, c)| c.as_str().to_owned())
+        .collect();
+    for c in e.server.received.lock().unwrap().iter() {
+        assert!(
+            plan.contains(c) || c.starts_with("on -f /net/hu-omap/ cat /opt/"),
+            "unexpected command {c}"
+        );
+    }
+    assert!(contains(&dir, b"test-password").is_none());
+    assert_eq!(e.server.hu.lock().unwrap().snapshot(), before);
+}
+
+#[test]
+fn inspect_cancel_sends_nothing() {
+    let e = env(ServerOptions::default());
+    let (code, _, _) = run_inspect(&e, "test-password\nPROBE\n");
+    assert_eq!(code, 1);
+    assert!(e.server.received.lock().unwrap().is_empty());
+}
+
+#[test]
+fn inspect_print_commands_matches_core_plan() {
+    let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args(["inspect", "--print-commands"])
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    let s = String::from_utf8(o.stdout).unwrap();
+    for (id, c) in nbt_aad_core::inspect::plan(&nbt_aad_core::profile::PILOT_G31).unwrap() {
+        assert!(s.contains(&format!("{id:<28} {c}")), "{id}");
+    }
+    let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args(["inspect", "--print-commands", "--hu-node", "/net/other/"])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1));
+}

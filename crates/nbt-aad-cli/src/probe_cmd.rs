@@ -1,4 +1,7 @@
-//! `nbt-aad-manager probe`: native port of `tools/probe/nbt-probe.sh`.
+//! `nbt-aad-manager probe` (native port of `tools/probe/nbt-probe.sh`) and
+//! `nbt-aad-manager inspect` (profile match + digest-verified install state).
+//! Both share the same audited SSH path and transcript sink; both are
+//! read-only.
 
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
@@ -9,11 +12,14 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use nbt_aad_core::guard::NodePath;
+use nbt_aad_core::inspect::{self, InspectConfig, InspectError, Verdict};
 use nbt_aad_core::kexinit::{self, AlgorithmProfile};
 use nbt_aad_core::probe::{
     self, Interaction, PROBE_VERSION, ProbeConfig, ProbeError, USB_MARKER_NAME,
 };
+use nbt_aad_core::profile::PILOT_G31;
 use nbt_aad_core::redact::redact;
+use nbt_aad_core::release::KNOWN;
 use nbt_aad_core::transport::{ExecLimits, Recorder, sha256_hex};
 use nbt_aad_transport_ssh::{self as ssh, HostKey, SshOptions};
 use regex_lite_host::is_valid_host;
@@ -34,6 +40,28 @@ mod regex_lite_host {
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Which read-only operation runs after login.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Mode {
+    Probe,
+    Inspect,
+}
+
+impl Mode {
+    fn word(self) -> &'static str {
+        match self {
+            Mode::Probe => "PROBE",
+            Mode::Inspect => "INSPECT",
+        }
+    }
+    fn dir_prefix(self) -> &'static str {
+        match self {
+            Mode::Probe => "nbt-probe",
+            Mode::Inspect => "nbt-inspect",
+        }
+    }
+}
 
 /// Prints to stderr and keeps a redacted copy in `report/console.log`.
 struct Console {
@@ -88,7 +116,9 @@ impl Run {
             self.console
                 .say(&format!("WARNING: could not create report.tgz: {e}"));
         }
-        let head = if code == 0 {
+        // 6/7 are inspection verdicts (profile mismatch / not verified), not
+        // early stops.
+        let head = if matches!(code, 0 | 6 | 7) {
             "Done.".to_owned()
         } else {
             format!("Stopped early (code {code}); the partial report is still useful.")
@@ -137,6 +167,28 @@ impl Interaction for CliInteraction {
     }
 }
 
+fn print_inspect_commands() -> ExitCode {
+    match inspect::plan(&PILOT_G31) {
+        Ok(plan) => {
+            for (id, cmd) in plan {
+                println!("{id:<28} {cmd}");
+            }
+            println!(
+                "\nDynamic commands: on -f {n} cat <file> for the daemon and its .old backup in {d},\nand the five plugin files in {pd} and {pb} (only names listed by ls -la; hashed on this computer).",
+                n = PILOT_G31.daemon_node,
+                d = PILOT_G31.daemon_dir,
+                pd = PILOT_G31.plugin_dir,
+                pb = PILOT_G31.plugin_backup_dir
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("internal error: {e}");
+            ExitCode::from(5)
+        }
+    }
+}
+
 fn print_commands(node: &NodePath) -> ExitCode {
     match probe::guarded_plan(node) {
         Ok(plan) => {
@@ -156,7 +208,7 @@ fn print_commands(node: &NodePath) -> ExitCode {
     }
 }
 
-pub fn main(args: ProbeArgs) -> ExitCode {
+pub fn main(args: ProbeArgs, mode: Mode) -> ExitCode {
     let node = match NodePath::new(&args.hu_node) {
         Ok(n) => n,
         Err(e) => {
@@ -164,8 +216,24 @@ pub fn main(args: ProbeArgs) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    if mode == Mode::Inspect && node.as_str() != PILOT_G31.daemon_node {
+        eprintln!(
+            "ERROR: --hu-node must be {} for profile {}",
+            PILOT_G31.daemon_node, PILOT_G31.id
+        );
+        return ExitCode::from(1);
+    }
     if args.print_commands {
-        return print_commands(&node);
+        return match mode {
+            Mode::Probe => print_commands(&node),
+            Mode::Inspect => print_inspect_commands(),
+        };
+    }
+    if mode == Mode::Inspect
+        && let Err(e) = inspect::plan(&PILOT_G31)
+    {
+        eprintln!("internal error, not connecting: {e}");
+        return ExitCode::from(5);
     }
     // Validate the complete static plan before touching the network.
     if let Err(e) = probe::guarded_plan(&node) {
@@ -195,7 +263,7 @@ pub fn main(args: ProbeArgs) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    rt.block_on(run(args, host, node))
+    rt.block_on(run(args, host, node, mode))
 }
 
 static STAMP_FMT: LazyLock<Vec<time::format_description::BorrowedFormatItem<'static>>> =
@@ -203,12 +271,12 @@ static STAMP_FMT: LazyLock<Vec<time::format_description::BorrowedFormatItem<'sta
         time::macros::format_description!("[year][month][day]T[hour][minute][second]Z").to_vec()
     });
 
-fn setup_out(base: &Path) -> std::io::Result<(PathBuf, PathBuf, PathBuf)> {
+fn setup_out(base: &Path, prefix: &str) -> std::io::Result<(PathBuf, PathBuf, PathBuf)> {
     let now = time::OffsetDateTime::now_utc();
     let stamp = now
         .format(&STAMP_FMT[..])
         .unwrap_or_else(|_| "unknown".into());
-    let out = base.join(format!("nbt-probe-{stamp}"));
+    let out = base.join(format!("{prefix}-{stamp}"));
     if out.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
@@ -239,11 +307,11 @@ async fn tcp(addr: &std::net::SocketAddr) -> Result<TcpStream, String> {
     }
 }
 
-async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
+async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitCode {
     // --password-stdin: the password is the FIRST stdin line, read before
     // any prompt, so it can never be consumed as a prompt answer.
     let stdin_password = args.password_stdin.then(read_secret_line);
-    let (out, report, private) = match setup_out(&args.out) {
+    let (out, report, private) = match setup_out(&args.out, mode.dir_prefix()) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("ERROR: cannot create output directory: {e}");
@@ -271,7 +339,8 @@ async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
     };
 
     run.console.say(&format!(
-        "\nNBT-AAD Manager READ-ONLY probe v{PROBE_VERSION} ({} {})\nTarget: {}@{host}:{}   HU node: {}\nOutput: {}\n\nPreconditions (you confirm):\n  - vehicle is parked; you control power; nobody is driving\n  - SSH on the head unit is ALREADY enabled (this tool does not enable it)\n  - you have NOT remounted anything read-write in another session\nThis tool makes NO writes on the head unit. Review commands with --print-commands.",
+        "\nNBT-AAD Manager READ-ONLY {} (probe plan v{PROBE_VERSION}; {} {})\nTarget: {}@{host}:{}   HU node: {}\nOutput: {}\n\nPreconditions (you confirm):\n  - vehicle is parked; you control power; nobody is driving\n  - SSH on the head unit is ALREADY enabled (this tool does not enable it)\n  - you have NOT remounted anything read-write in another session\nThis tool makes NO writes on the head unit. Review commands with --print-commands.",
+        mode.word().to_lowercase(),
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
         args.user,
@@ -285,7 +354,11 @@ async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
     if args.allow_legacy_weak {
         run.console.say("WARNING: --allow-legacy-weak enables SHA-1 key exchange, DSA host keys and CBC/3DES ciphers.\nUse it only on a direct cable to your own head unit, and only if ssh-kexinit.txt shows no better option.");
     }
-    if run.console.ask("Type PROBE to continue: ") != "PROBE" {
+    if run
+        .console
+        .ask(&format!("Type {} to continue: ", mode.word()))
+        != mode.word()
+    {
         run.console.say("cancelled");
         return run.finish(1);
     }
@@ -298,7 +371,8 @@ async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
     run.write(
         "meta.txt",
         &format!(
-            "probe_version={PROBE_VERSION}\nimplementation=rust\ntool_version={}\nutc={}\ntarget={}@{host}:{}\nhu_node={}\naa_running_user_reported={}\nnote={}\nhost_os={} {}\nalgorithm_profile={}\ncmd_timeout_s={}\n",
+            "mode={}\nprobe_version={PROBE_VERSION}\nimplementation=rust\ntool_version={}\nutc={}\ntarget={}@{host}:{}\nhu_node={}\naa_running_user_reported={}\nnote={}\nhost_os={} {}\nalgorithm_profile={}\ncmd_timeout_s={}\n",
+            mode.word().to_lowercase(),
             env!("CARGO_PKG_VERSION"),
             utc(std::time::SystemTime::now()),
             args.user,
@@ -342,6 +416,7 @@ async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
             return run.finish(2);
         }
     };
+    let banner = algs.banner.clone();
     let choices = kexinit::negotiate(&profile, &algs);
     let mut kx = kexinit::describe(&algs);
     kx.push_str(&format!(
@@ -479,8 +554,47 @@ async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
         },
         ..ProbeConfig::default()
     };
-    run.console.say("==> Running probes");
     let mut rec = Recorder::new(transport, sink);
+    if mode == Mode::Inspect {
+        run.console.say("==> Inspecting (read-only)");
+        let icfg = InspectConfig {
+            text_limits: cfg.text_limits,
+            readback_limits: cfg.readback_limits,
+            ..InspectConfig::default()
+        };
+        let result = inspect::run(&mut rec, &PILOT_G31, KNOWN, &icfg, Some(banner)).await;
+        let (transport, _sink) = rec.into_parts();
+        transport.close().await;
+        return match result {
+            Ok(r) => {
+                let text = r.render(&PILOT_G31);
+                run.write("inspect.txt", &text);
+                run.console.say(&text);
+                match r.verdict() {
+                    Verdict::Verified => run.finish(0),
+                    Verdict::NotVerified => run.finish(7),
+                    Verdict::ProfileMismatch => run.finish(6),
+                }
+            }
+            Err(InspectError::ConnectionLost { executed, reason }) => {
+                run.console.say(&format!(
+                    "connection lost after {executed} recorded executions ({reason}); stopping, no reconnect"
+                ));
+                run.finish(3)
+            }
+            Err(InspectError::Sink(e)) => {
+                run.console.say(&format!(
+                    "ERROR: transcript could not be written ({e}); stopped before the next command."
+                ));
+                run.finish(4)
+            }
+            Err(e) => {
+                run.console.say(&format!("ERROR: {e}"));
+                run.finish(5)
+            }
+        };
+    }
+    run.console.say("==> Running probes");
     let mut io = CliInteraction { out: out.clone() };
     let result = probe::run(&mut rec, &cfg, &mut io).await;
     let executed = rec.executed();

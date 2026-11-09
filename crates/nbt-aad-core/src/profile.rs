@@ -469,8 +469,12 @@ fn plugin_set(
         .collect()
 }
 
-fn size_candidate(daemon: u64, plugin: &[(String, u64)]) -> Option<&'static str> {
-    release::KNOWN
+fn size_candidate(
+    table: &'static [KnownRelease],
+    daemon: u64,
+    plugin: &[(String, u64)],
+) -> Option<&'static str> {
+    table
         .iter()
         .find(|k| {
             k.daemon.size == daemon
@@ -485,6 +489,15 @@ fn size_candidate(daemon: u64, plugin: &[(String, u64)]) -> Option<&'static str>
 /// Name the install state. Fails closed: any inconsistency or missing
 /// evidence yields `MidUpdate`, `Unknown` or `Unverified`, never `Verified`.
 pub fn classify(p: &HeadUnitProfile, o: &Observation) -> InstallState {
+    classify_in(p, o, release::KNOWN)
+}
+
+/// [`classify`] against an explicit pin table.
+pub fn classify_in(
+    p: &HeadUnitProfile,
+    o: &Observation,
+    table: &'static [KnownRelease],
+) -> InstallState {
     let dir = match files_of(o, ids::LS_DAEMON_DIR) {
         Ok(SetState::Present(v)) => v,
         Ok(SetState::Absent) => {
@@ -547,12 +560,12 @@ pub fn classify(p: &HeadUnitProfile, o: &Observation) -> InstallState {
         Ok(x) => x,
         Err(e) if e.starts_with("no read-back") => {
             return InstallState::Unverified {
-                candidate: size_candidate(daemon, plugin),
+                candidate: size_candidate(table, daemon, plugin),
             };
         }
         Err(e) => return InstallState::Unknown(vec![e]),
     };
-    let installed = match release::identify(&d, &pl) {
+    let installed = match release::identify_in(table, &d, &pl) {
         Identification::Known(k) => k,
         Identification::Mixed { daemon, plugin } => return InstallState::Mixed { daemon, plugin },
         Identification::Unknown(why) => return InstallState::Unknown(why),
@@ -563,7 +576,7 @@ pub fn classify(p: &HeadUnitProfile, o: &Observation) -> InstallState {
                 .and_then(|d| Ok((d, plugin_set(o, p.plugin_backup_dir, pb)?)));
             match r {
                 Err(e) => Backup::NotIdentified(vec![e]),
-                Ok((d, pb)) => match release::identify(&d, &pb) {
+                Ok((d, pb)) => match release::identify_in(table, &d, &pb) {
                     Identification::Known(k) => Backup::Known(k),
                     Identification::Mixed { daemon, plugin } => {
                         Backup::NotIdentified(vec![format!(

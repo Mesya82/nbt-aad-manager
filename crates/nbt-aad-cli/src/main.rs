@@ -25,6 +25,10 @@ struct Cli {
 enum Command {
     /// Read-only evidence probe of a head unit (makes no writes on the head unit).
     Probe(ProbeArgs),
+    /// Read-only: match the unit against the pilot profile and verify the
+    /// installed release by exact digests (exit 0 verified, 6 profile
+    /// mismatch, 7 not verified). Same SSH options as `probe`.
+    Inspect(ProbeArgs),
     /// Pinned upstream releases: list, fetch and verify (host-side only).
     #[command(subcommand)]
     Release(release_cmd::ReleaseCmd),
@@ -76,7 +80,8 @@ fn main() -> ExitCode {
             eprintln!("Run `nbt-aad-manager probe --help`.");
             ExitCode::from(2)
         }
-        Some(Command::Probe(args)) => probe_cmd::main(args),
+        Some(Command::Probe(args)) => probe_cmd::main(args, probe_cmd::Mode::Probe),
+        Some(Command::Inspect(args)) => probe_cmd::main(args, probe_cmd::Mode::Inspect),
         Some(Command::Release(cmd)) => release_cmd::main(cmd),
     }
 }

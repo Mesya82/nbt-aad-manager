@@ -6,6 +6,7 @@
 //! read-only probe.
 
 pub mod guard;
+pub mod inspect;
 pub mod kexinit;
 pub mod probe;
 pub mod profile;

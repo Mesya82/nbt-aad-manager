@@ -172,8 +172,17 @@ fn plugin_match(plugin: &[Observed], k: &KnownRelease) -> bool {
 /// Identify an installed (or staged) daemon + plugin set by exact digests.
 /// Extra, missing, renamed or case-variant plugin files make it unknown.
 pub fn identify(daemon: &Observed, plugin: &[Observed]) -> Identification {
-    let d = KNOWN.iter().find(|k| same(daemon, &k.daemon));
-    let p = KNOWN.iter().find(|k| plugin_match(plugin, k));
+    identify_in(KNOWN, daemon, plugin)
+}
+
+/// [`identify`] against an explicit pin table (tests use synthetic tables).
+pub fn identify_in(
+    table: &'static [KnownRelease],
+    daemon: &Observed,
+    plugin: &[Observed],
+) -> Identification {
+    let d = table.iter().find(|k| same(daemon, &k.daemon));
+    let p = table.iter().find(|k| plugin_match(plugin, k));
     match (d, p) {
         (Some(d), Some(p)) if d.tag == p.tag => Identification::Known(d),
         (Some(daemon), Some(plugin)) => Identification::Mixed { daemon, plugin },

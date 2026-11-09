@@ -1,0 +1,456 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::time::{Duration, SystemTime};
+
+use super::*;
+use crate::profile::{Backup, Evidence, Fact, PILOT_G31, Remount, RunOn, WritableExpectation};
+use crate::release::{FileDigest, KNOWN};
+use crate::testkit::{FakeHu, MemSink, Node};
+use crate::transport::ExecResult;
+
+fn block_on<F: std::future::Future>(f: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(f)
+}
+
+// ---- replay of a real pilot run ----
+
+/// Answers exactly the commands recorded in a fixture run; anything else is
+/// a test failure. Records without stored stdout (binary read-backs) are
+/// answered as rejected, so no digest can be fabricated.
+struct Replay {
+    answers: BTreeMap<String, (Option<Vec<u8>>, u32)>,
+    unknown: Vec<String>,
+}
+
+impl Replay {
+    fn load(run: &str) -> Self {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/pilot-g31")
+            .join(run)
+            .join("exec");
+        let mut answers = BTreeMap::new();
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let cmd = std::fs::read_to_string(p.join("cmd")).unwrap();
+            let rc: u32 = std::fs::read_to_string(p.join("rc"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            let out = std::fs::read(p.join("stdout")).ok();
+            answers
+                .entry(cmd.trim_end_matches('\n').to_owned())
+                .or_insert((out, rc));
+        }
+        Self {
+            answers,
+            unknown: Vec::new(),
+        }
+    }
+}
+
+impl HeadUnitTransport for Replay {
+    async fn exec(
+        &mut self,
+        command: &GuardedCommand,
+        _limits: ExecLimits,
+    ) -> Result<ExecResult, TransportError> {
+        match self.answers.get(command.as_str()) {
+            Some((Some(out), rc)) => Ok(ExecResult {
+                stdout: out.clone(),
+                stderr: vec![],
+                stdout_dropped: 0,
+                stderr_dropped: 0,
+                outcome: ExitOutcome::Code(*rc),
+                started: SystemTime::now(),
+                duration: Duration::from_millis(1),
+            }),
+            Some((None, _)) => Err(TransportError::Rejected(
+                "binary record not replayable".into(),
+            )),
+            None => {
+                self.unknown.push(command.as_str().to_owned());
+                Err(TransportError::Rejected("not in fixture".into()))
+            }
+        }
+    }
+}
+
+const BANNER: &str = "SSH-2.0-OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6";
+
+#[test]
+fn every_inspect_command_ran_verbatim_on_the_pilot_car() {
+    for run in ["run4-20261109-aa-running-usb", "run5-20261109-aa-stopped"] {
+        let mut rec = Recorder::new(Replay::load(run), MemSink::default());
+        let r = block_on(run_inspect(
+            &mut rec,
+            &PILOT_G31,
+            KNOWN,
+            Some(BANNER.into()),
+        ))
+        .unwrap();
+        let (replay, sink) = rec.into_parts();
+        assert!(
+            replay.unknown.is_empty(),
+            "{run}: commands never sent to the car: {:?}",
+            replay.unknown
+        );
+        assert_eq!(r.profile, Ok(()), "{run}");
+        // Read-backs are not replayable from sanitized fixtures: no claim.
+        assert_eq!(
+            r.state,
+            Some(InstallState::Unverified {
+                candidate: Some("gps")
+            }),
+            "{run}"
+        );
+        assert_eq!(r.readbacks, 12, "{run}: daemon x2 + plugin x5 + backup x5");
+        assert_eq!(
+            sink.records.len() as u32,
+            r.executed,
+            "{run}: every exec recorded"
+        );
+    }
+}
+
+fn run_inspect<'a, T: HeadUnitTransport>(
+    rec: &'a mut Recorder<T, MemSink>,
+    p: &'a HeadUnitProfile,
+    table: &'static [KnownRelease],
+    banner: Option<String>,
+) -> impl std::future::Future<Output = Result<InspectReport, InspectError>> + 'a {
+    run(rec, p, table, &INSPECT_CFG, banner)
+}
+
+static INSPECT_CFG: std::sync::LazyLock<InspectConfig> =
+    std::sync::LazyLock::new(InspectConfig::default);
+
+#[test]
+fn plan_is_a_subset_of_the_probe_plan_and_read_only() {
+    let p = plan(&PILOT_G31).unwrap();
+    assert_eq!(p.len(), plan_ids(&PILOT_G31).len());
+    for (id, c) in &p {
+        assert!(!c.as_str().contains("df -k "), "{id}");
+        assert!(!c.as_str().contains(" df"), "{id}");
+    }
+}
+
+// ---- full path against the stateful fake, synthetic profile and pins ----
+
+const FAKE_UNAME: &str = "QNX hu-omap 6.5.0 fake armle";
+const PD: &str = "/opt/hmi/ID5/data/ro/Plugins/NbtAad";
+
+fn fake_profile() -> HeadUnitProfile {
+    let obs = Evidence::Observed(&["tests/fixtures/pilot-g31"]);
+    HeadUnitProfile {
+        id: "fake",
+        firmware: Fact {
+            value: "HU_SW=FAKE",
+            evidence: obs,
+        },
+        login_uname: Fact {
+            value: FAKE_UNAME,
+            evidence: obs,
+        },
+        daemon_uname: Fact {
+            value: FAKE_UNAME,
+            evidence: obs,
+        },
+        writable: Fact {
+            value: &[
+                WritableExpectation {
+                    path: "/opt/aa",
+                    probe_id: "hu-test-w-opt-aa",
+                    writable: false,
+                },
+                WritableExpectation {
+                    path: PD,
+                    probe_id: "hu-test-w-plugin",
+                    writable: false,
+                },
+                WritableExpectation {
+                    path: "/var/opt/aa",
+                    probe_id: "hu-test-w-var-opt-aa",
+                    writable: false,
+                },
+                WritableExpectation {
+                    path: "/dev/shmem",
+                    probe_id: "hu-test-w-dev-shmem",
+                    writable: true,
+                },
+            ],
+            evidence: obs,
+        },
+        remount: Fact {
+            value: Remount {
+                run_on: RunOn::Login,
+                command: "x",
+                verify_writable: "/opt/aa",
+                persists_until_restart: Fact {
+                    value: false,
+                    evidence: Evidence::Unknown,
+                },
+            },
+            evidence: Evidence::Unknown,
+        },
+        ..PILOT_G31
+    }
+}
+
+fn file(data: &[u8], name: &'static str) -> FileDigest {
+    FileDigest {
+        name,
+        size: data.len() as u64,
+        sha256: Box::leak(sha256_hex(data).into_boxed_str()),
+    }
+}
+
+fn content(tag: &str, n: &str) -> Vec<u8> {
+    format!("{tag} {n} payload\n").into_bytes()
+}
+
+fn pin(tag: &'static str) -> KnownRelease {
+    KnownRelease {
+        tag,
+        title: tag,
+        daemon_build: "Build: v0",
+        plugin_marker: "rhmiapp-0",
+        daemon: file(&content(tag, "nbt-aad"), "nbt-aad"),
+        archive: file(b"zip", "Releases.zip"),
+        plugin: PLUGIN_FILES.map(|n| file(&content(tag, n), n)),
+    }
+}
+
+fn table() -> &'static [KnownRelease] {
+    static T: std::sync::LazyLock<Vec<KnownRelease>> =
+        std::sync::LazyLock::new(|| vec![pin("old"), pin("new")]);
+    T.as_slice()
+}
+
+/// A fake unit in the "after update" state: `new` active, `old` as backup.
+fn updated_unit() -> FakeHu {
+    let mut hu = FakeHu::new();
+    hu.fs.retain(|k, _| {
+        !(k.starts_with(PD) && k != PD)
+            && !k.starts_with("/opt/aa/NbtAad.old/")
+            && k != "/opt/aa/nbt-aad"
+            && k != "/opt/aa/nbt-aad.old"
+    });
+    let mut f = |p: String, b: Vec<u8>| {
+        hu.fs.insert(p, Node::File(b));
+    };
+    f("/opt/aa/nbt-aad".into(), content("new", "nbt-aad"));
+    f("/opt/aa/nbt-aad.old".into(), content("old", "nbt-aad"));
+    for n in PLUGIN_FILES {
+        f(format!("{PD}/{n}"), content("new", n));
+        f(format!("/opt/aa/NbtAad.old/{n}"), content("old", n));
+    }
+    hu
+}
+
+fn inspect_fake(hu: FakeHu) -> (InspectReport, FakeHu) {
+    let p = fake_profile();
+    let mut rec = Recorder::new(hu, MemSink::default());
+    let r = block_on(run(
+        &mut rec,
+        &p,
+        table(),
+        &InspectConfig::default(),
+        Some(BANNER.into()),
+    ))
+    .unwrap();
+    (r, rec.into_parts().0)
+}
+
+#[test]
+fn updated_fake_unit_is_verified_with_backup_and_untouched() {
+    let hu = updated_unit();
+    let before = hu.snapshot();
+    let (r, hu) = inspect_fake(hu);
+    assert_eq!(r.profile, Ok(()));
+    match r.state.unwrap() {
+        InstallState::Verified { installed, backup } => {
+            assert_eq!(installed.tag, "new");
+            assert!(matches!(backup, Backup::Known(k) if k.tag == "old"));
+        }
+        s => panic!("{s:?}"),
+    }
+    assert_eq!(hu.snapshot(), before, "inspection must not change the unit");
+}
+
+#[test]
+fn tampered_or_unreadable_files_never_verify() {
+    // Same size, different content.
+    let mut hu = updated_unit();
+    let mut d = content("new", "libNbtAad.so");
+    d[0] ^= 1;
+    hu.fs.insert(format!("{PD}/libNbtAad.so"), Node::File(d));
+    assert!(matches!(
+        inspect_fake(hu).0.state,
+        Some(InstallState::Unknown(_))
+    ));
+
+    // Truncated read-back (output cap) gives no digest: unverified.
+    let mut hu = updated_unit();
+    hu.fs
+        .insert("/opt/aa/nbt-aad".into(), Node::File(vec![b'x'; 5000]));
+    let p = fake_profile();
+    let mut rec = Recorder::new(hu, MemSink::default());
+    let cfg = InspectConfig {
+        readback_limits: ExecLimits {
+            max_output: 1000,
+            ..ExecLimits::default()
+        },
+        ..InspectConfig::default()
+    };
+    let r = block_on(run(&mut rec, &p, table(), &cfg, Some(BANNER.into()))).unwrap();
+    assert!(
+        matches!(r.state, Some(InstallState::Unverified { .. })),
+        "{:?}",
+        r.state
+    );
+}
+
+#[test]
+fn profile_mismatch_means_no_state_claim() {
+    let mut hu = updated_unit();
+    hu.fs.insert(
+        "/opt/sys/etc/nbt_version.txt".into(),
+        Node::File(b"HU_SW=OTHER\n".to_vec()),
+    );
+    let (r, _) = inspect_fake(hu);
+    assert!(r.profile.is_err());
+    assert_eq!(r.state, None);
+}
+
+#[test]
+fn broken_on_skips_read_backs() {
+    let mut hu = updated_unit();
+    hu.on_broken = true;
+    let (r, hu) = inspect_fake(hu);
+    assert_eq!(r.readbacks, 0);
+    assert!(r.profile.is_err());
+    assert!(
+        !hu.seen
+            .iter()
+            .any(|c| c.contains("cat /opt/aa/") || c.contains("cat /opt/hmi/"))
+    );
+}
+
+#[test]
+fn connection_loss_is_an_error_after_recording() {
+    let mut hu = updated_unit();
+    hu.lose_after = Some(5);
+    let p = fake_profile();
+    let mut rec = Recorder::new(hu, MemSink::default());
+    let e = block_on(run(&mut rec, &p, table(), &InspectConfig::default(), None)).unwrap_err();
+    assert!(
+        matches!(e, InspectError::ConnectionLost { executed: 6, .. }),
+        "{e}"
+    );
+    assert_eq!(
+        rec.into_parts().1.records.len(),
+        6,
+        "the failed attempt is recorded too"
+    );
+}
+
+#[test]
+fn only_allowlisted_names_are_read_back() {
+    let mut hu = updated_unit();
+    hu.fs.insert(
+        "/opt/aa/nbt-aad.env".into(),
+        Node::File(b"NBT_WFD_PASS=secret\n".to_vec()),
+    );
+    hu.fs
+        .insert(format!("{PD}/extra.bin"), Node::File(b"x".to_vec()));
+    let (r, hu) = inspect_fake(hu);
+    let cats: Vec<_> = hu.seen.iter().filter(|c| c.contains(" cat ")).collect();
+    assert!(
+        cats.iter()
+            .all(|c| !c.contains("nbt-aad.env") && !c.contains("extra.bin")),
+        "{cats:?}"
+    );
+    // The extra plugin file still makes the state non-verified.
+    assert!(matches!(r.state, Some(InstallState::MidUpdate(_))));
+}
+
+#[test]
+fn verdicts_and_rendering() {
+    let (r, _) = inspect_fake(updated_unit());
+    assert_eq!(r.verdict(), Verdict::Verified);
+    let text = r.render(&fake_profile());
+    assert!(text.contains("profile match: YES"));
+    assert!(text.contains("install state: VERIFIED new"));
+    assert!(text.contains("backup: VERIFIED old"));
+    assert!(text.contains("/opt/aa/nbt-aad.old"));
+    assert!(!text.contains("payload"), "file contents never rendered");
+
+    let mut hu = updated_unit();
+    hu.fs.remove("/opt/aa/nbt-aad");
+    let (r, _) = inspect_fake(hu);
+    assert_eq!(r.verdict(), Verdict::NotVerified);
+    assert!(r.render(&fake_profile()).contains("HALF-APPLIED"));
+
+    let mut hu = updated_unit();
+    hu.fs.insert(
+        "/opt/sys/etc/nbt_version.txt".into(),
+        Node::File(b"X\n".to_vec()),
+    );
+    let (r, _) = inspect_fake(hu);
+    assert_eq!(r.verdict(), Verdict::ProfileMismatch);
+    let t = r.render(&fake_profile());
+    assert!(t.contains("profile match: NO") && !t.contains("install state"));
+}
+
+#[test]
+fn truncated_text_output_is_not_an_observation() {
+    let p = fake_profile();
+    let mut rec = Recorder::new(updated_unit(), MemSink::default());
+    let cfg = InspectConfig {
+        text_limits: ExecLimits {
+            max_output: 200,
+            ..ExecLimits::default()
+        },
+        ..InspectConfig::default()
+    };
+    let r = block_on(run(&mut rec, &p, table(), &cfg, Some(BANNER.into()))).unwrap();
+    // Listings exceed 200 bytes: dropped, never parsed as partial listings.
+    assert!(!r.observation.records.contains_key(ids::LS_PLUGIN));
+    assert!(!r.observation.records.contains_key(ids::LS_DAEMON_DIR));
+    assert!(r.observation.records.contains_key(ids::FIRMWARE));
+    assert_eq!(r.verdict(), Verdict::ProfileMismatch);
+}
+
+#[test]
+fn failed_shell_sentinel_skips_read_backs_even_if_listings_work() {
+    let mut hu = updated_unit();
+    hu.hang_on = Some("echo probe-ok".into());
+    let (r, hu) = inspect_fake(hu);
+    assert!(
+        r.observation.records[ids::LS_PLUGIN].rc == 0,
+        "listings still work"
+    );
+    assert_eq!(r.readbacks, 0);
+    assert!(!hu.seen.iter().any(|c| c.contains("cat /opt/aa/")));
+    assert!(r.observation.digests.is_empty());
+}
+
+#[test]
+fn profile_citing_unknown_probe_ids_is_refused() {
+    let mut p = fake_profile();
+    p.writable.value = &[WritableExpectation {
+        path: "/opt/aa",
+        probe_id: "hu-test-w-nonexistent",
+        writable: false,
+    }];
+    assert!(matches!(plan(&p), Err(InspectError::Plan(_))));
+    let mut rec = Recorder::new(updated_unit(), MemSink::default());
+    assert!(block_on(run(&mut rec, &p, table(), &InspectConfig::default(), None)).is_err());
+    assert_eq!(rec.executed(), 0, "nothing sent with an invalid plan");
+}
