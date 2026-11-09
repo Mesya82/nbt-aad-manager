@@ -17,6 +17,8 @@ use nbt_aad_core::release::{
 };
 use serde::Deserialize;
 
+pub mod usb;
+
 /// Upper bounds for everything read from the network or an archive.
 #[derive(Clone, Copy, Debug)]
 pub struct Limits {

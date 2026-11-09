@@ -17,7 +17,7 @@ Create issues only after the repository exists. Do not mark anything done from d
 | P1 | GitHub release discovery + immutable asset provenance | Audit | Arbitrary tag names, incomplete releases, pagination, failure tests |
 | P1 | Secure ZIP and release layout validator | Release provider | Path/zip bomb/case/mismatch fuzz/property tests. **Partly done:** `nbt-aad-core::release` (pins, metadata selection, layout, content digests) and `nbt-aad-release` (bounded HTTPS, bounded ZIP, atomic staging) with example-based, mutation-checked and property tests (fixed seed), cargo-fuzz targets (`fuzz/`) with a checked-in corpus replayed on stable in CI, and a scheduled 10-minute-per-target fuzz workflow |
 | P1 | Deterministic plan, scope and dry-run | Models | AC-01 read-only proved by zero mutations; plan revalidates device |
-| P1 | Safe USB preparation | Archive validator | Never format; staging integrity, full/read-only/wrong device tests |
+| P1 | Safe USB preparation | Archive validator | Never format; staging integrity, full/read-only/wrong device tests. **Partly done:** `release usb-prepare` (re-verify, hidden staging, re-read, case-insensitive no-overwrite); full/read-only device tests and drive-identity confirmation still to do |
 | P1 | Read-only SSH/QNX discovery | Interfaces | Host key validation, legacy algorithm compatibility, missing command cases |
 | P1 | Snapshot manifest and integrity verification | Simulator | All touched objects backed up, hashes/modes/symlinks/absence captured |
 | P1 | Journal and crash-safe reconciliation engine | Snapshot | Restart/retry/idempotency, torn/corrupt journal, double-execution cases |

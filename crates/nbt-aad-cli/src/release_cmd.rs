@@ -22,6 +22,23 @@ pub enum ReleaseCmd {
         #[arg(long, default_value = ".")]
         out: PathBuf,
     },
+    /// Copy a fetched, re-verified release onto a USB stick as
+    /// `nbt-aad-<op>/` (the layout `plan` expects). Never formats, deletes
+    /// or overwrites anything on the stick.
+    UsbPrepare {
+        /// Exact pinned tag of the fetched release.
+        #[arg(long)]
+        tag: String,
+        /// Directory created by `release fetch` (e.g. ./gps).
+        #[arg(long)]
+        fetched: PathBuf,
+        /// Root of the mounted USB stick (e.g. E:\ or /media/user/STICK).
+        #[arg(long)]
+        usb: PathBuf,
+        /// Operation id printed by `plan` (YYYYMMDDTHHMMSSZ-xxxxxx).
+        #[arg(long)]
+        op: String,
+    },
 }
 
 pub fn main(cmd: ReleaseCmd) -> ExitCode {
@@ -42,6 +59,23 @@ pub fn main(cmd: ReleaseCmd) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        ReleaseCmd::UsbPrepare {
+            tag,
+            fetched,
+            usb,
+            op,
+        } => match nbt_aad_release::usb::prepare(KNOWN, &tag, &fetched, &usb, &op) {
+            Ok(p) => {
+                println!("Prepared and re-verified {}", p.dir.display());
+                print!("{}", p.manifest);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                eprintln!("Nothing was placed on the stick under the final name.");
+                ExitCode::from(1)
+            }
+        },
         ReleaseCmd::Fetch { tag, out } => {
             if nbt_aad_core::release::find_known(KNOWN, &tag).is_none() {
                 eprintln!("error: release tag {tag:?} is not pinned. Pinned tags:");

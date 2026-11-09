@@ -510,3 +510,27 @@ fn plan_is_an_offline_dry_run() {
         assert!(String::from_utf8_lossy(&o.stderr).contains(why), "{why}");
     }
 }
+
+#[test]
+fn usb_prepare_refuses_unverifiable_input_without_writing() {
+    let usb = tempfile::tempdir().unwrap();
+    let fetched = tempfile::tempdir().unwrap();
+    std::fs::write(fetched.path().join("nbt-aad"), b"not the pinned daemon").unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args([
+            "release",
+            "usb-prepare",
+            "--tag",
+            "gps",
+            "--op",
+            "20261109T170000Z-abc123",
+            "--fetched",
+        ])
+        .arg(fetched.path())
+        .arg("--usb")
+        .arg(usb.path())
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1));
+    assert_eq!(std::fs::read_dir(usb.path()).unwrap().count(), 0);
+}
