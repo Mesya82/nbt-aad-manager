@@ -26,6 +26,21 @@ jobs:
       - run: cargo test --workspace --all-targets --all-features
       - run: cargo build --release
 
+  probe:
+    name: Read-only probe self-test + fake head-unit sandbox
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap binutils
+      - name: Allow unprivileged user namespaces (Ubuntu 24.04 AppArmor restriction)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: bash tools/probe/nbt-probe.sh --self-test
+      - run: bash tools/probe/nbt-probe.sh --print-commands > /dev/null
+      - run: bash tools/probe/tests/fake-device-test.sh
+        env:
+          REQUIRE_BWRAP: "1"
+
 # IMPORTANT: These checks only verify the minimal initial Rust scaffold.
 # Simulator E2E, fault injection, archive fuzz, coverage and hardware-review
 # gates specified in docs/TEST_STRATEGY.md MUST be added before any live use.
