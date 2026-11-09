@@ -21,6 +21,7 @@ flate2 = "1.1.11"
 getrandom = "0.4.3"
 hex = "0.4.3"
 nbt-aad-core = { version = "0.0.1", path = "../nbt-aad-core" }
+nbt-aad-release = { version = "0.0.1", path = "../nbt-aad-release" }
 nbt-aad-transport-ssh = { version = "0.0.1", path = "../nbt-aad-transport-ssh" }
 rpassword = "7.5.4"
 sha2 = "0.11.1"

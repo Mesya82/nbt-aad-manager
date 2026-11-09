@@ -1,7 +1,8 @@
-//! NBT-AAD Manager CLI. Only the READ-ONLY `probe` command exists; no
-//! vehicle-modifying functionality is implemented.
+//! NBT-AAD Manager CLI. Only the READ-ONLY `probe` command and host-side
+//! `release` commands exist; no vehicle-modifying functionality is implemented.
 
 mod probe_cmd;
+mod release_cmd;
 mod sink;
 
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "nbt-aad-manager",
     version,
-    about = "NBT-AAD Manager (experimental; only the read-only probe exists)"
+    about = "NBT-AAD Manager (experimental; read-only probe and host-side release verification only)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -24,6 +25,9 @@ struct Cli {
 enum Command {
     /// Read-only evidence probe of a head unit (makes no writes on the head unit).
     Probe(ProbeArgs),
+    /// Pinned upstream releases: list, fetch and verify (host-side only).
+    #[command(subcommand)]
+    Release(release_cmd::ReleaseCmd),
 }
 
 #[derive(clap::Args)]
@@ -73,5 +77,6 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Some(Command::Probe(args)) => probe_cmd::main(args),
+        Some(Command::Release(cmd)) => release_cmd::main(cmd),
     }
 }

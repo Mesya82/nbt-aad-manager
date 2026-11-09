@@ -333,3 +333,35 @@ fn cmd_timeout_is_bounded() {
     assert!(!o.status.success());
     assert!(String::from_utf8_lossy(&o.stderr).contains("cmd-timeout"));
 }
+
+#[test]
+fn release_known_lists_exactly_the_pins() {
+    let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args(["release", "known"])
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    let s = String::from_utf8(o.stdout).unwrap();
+    for k in nbt_aad_core::release::KNOWN {
+        assert!(s.contains(k.daemon.sha256), "{}", k.tag);
+        assert!(s.lines().any(|l| l == k.tag), "{}", k.tag);
+    }
+}
+
+#[test]
+fn release_fetch_refuses_unpinned_tags_and_titles_without_network() {
+    let tmp = tempfile::tempdir().unwrap();
+    for tag in ["brwsr-ap", "v1.9.35-combined-prs", "GPS", "../gps"] {
+        let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+            .args(["release", "fetch", "--tag", tag, "--out"])
+            .arg(tmp.path())
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(2), "{tag}");
+        assert!(
+            String::from_utf8_lossy(&o.stderr).contains("not pinned"),
+            "{tag}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 0);
+}

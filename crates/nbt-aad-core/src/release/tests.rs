@@ -276,3 +276,209 @@ fn layout_rejections() {
         Err(E::Missing(_))
     ));
 }
+
+// ---- metadata selection and content verification ----
+
+/// The `gps` release metadata as GitHub publishes it (2026-11-09).
+fn gps_meta() -> ReleaseMeta {
+    let a = |name: &str, size: u64, d: &str| AssetMeta {
+        name: name.into(),
+        size,
+        digest: Some(format!("sha256:{d}")),
+        url: format!("https://example.invalid/{name}"),
+    };
+    ReleaseMeta {
+        tag: "gps".into(),
+        draft: false,
+        assets: vec![
+            a(
+                "nbt-aad",
+                773_142,
+                "1ec14876503b0bac597e8871b7099deb334c6401e3696bd2d8cf2db8cbc972b3",
+            ),
+            a(
+                "pf_aa",
+                39_844,
+                "5ae04c87476a041cad945e2afe6da7067ac3defdd9beea96407d8b3a3df339bb",
+            ),
+            a(
+                "Releases.zip",
+                92_668,
+                "02baed4a40ec4ac53bbafe5cdfacd96d0280af3c9d2e88e3e767d77906cf1f92",
+            ),
+        ],
+    }
+}
+
+#[test]
+fn real_metadata_selects_daemon_and_archive_only() {
+    let s = select_assets(KNOWN, "gps", &gps_meta()).unwrap();
+    assert_eq!(s.known.tag, "gps");
+    assert_eq!(s.daemon.name, "nbt-aad");
+    assert_eq!(s.archive.name, "Releases.zip");
+}
+
+#[test]
+fn metadata_deviations_are_refused_before_download() {
+    use VerifyError as E;
+    type M = fn(&mut ReleaseMeta);
+    type Check = fn(&VerifyError) -> bool;
+    let cases: &[(&str, M, Check)] = &[
+        (
+            "tag mismatch",
+            |m| m.tag = "gps2".into(),
+            |e| matches!(e, E::TagMismatch { .. }),
+        ),
+        ("draft", |m| m.draft = true, |e| matches!(e, E::Draft(_))),
+        (
+            "missing daemon",
+            |m| m.assets.retain(|a| a.name != "nbt-aad"),
+            |e| matches!(e, E::MissingAsset(_)),
+        ),
+        (
+            "renamed archive",
+            |m| m.assets[2].name = "release.zip".into(),
+            |e| matches!(e, E::MissingAsset(_)),
+        ),
+        (
+            "duplicate daemon",
+            |m| {
+                let d = m.assets[0].clone();
+                m.assets.push(d);
+            },
+            |e| matches!(e, E::DuplicateAsset(_)),
+        ),
+        (
+            "size",
+            |m| m.assets[0].size += 1,
+            |e| matches!(e, E::MetaDiffers { what: "size", .. }),
+        ),
+        (
+            "no digest",
+            |m| m.assets[2].digest = None,
+            |e| matches!(e, E::NoDigest { .. }),
+        ),
+        (
+            "non-sha256 digest",
+            |m| m.assets[0].digest = Some("sha512:00".into()),
+            |e| matches!(e, E::NoDigest { .. }),
+        ),
+        (
+            "bare hex digest",
+            |m| m.assets[0].digest = m.assets[0].digest.as_ref().map(|d| d[7..].to_owned()),
+            |e| matches!(e, E::NoDigest { .. }),
+        ),
+        (
+            "digest differs",
+            |m| m.assets[2].digest = Some(format!("sha256:{}", "0".repeat(64))),
+            |e| matches!(e, E::MetaDiffers { what: "sha256", .. }),
+        ),
+    ];
+    for (what, f, ok) in cases {
+        let mut m = gps_meta();
+        f(&mut m);
+        let e = select_assets(KNOWN, "gps", &m).unwrap_err();
+        assert!(ok(&e), "{what}: {e:?}");
+    }
+    assert!(matches!(
+        select_assets(KNOWN, "brwsr-ap", &gps_meta()),
+        Err(VerifyError::UnknownTag(_))
+    ));
+}
+
+#[test]
+fn digest_prefix_is_case_insensitive_hex_only() {
+    let mut m = gps_meta();
+    for a in &mut m.assets {
+        a.digest = a
+            .digest
+            .as_ref()
+            .map(|d| format!("sha256:{}", d[7..].to_uppercase()));
+    }
+    assert!(select_assets(KNOWN, "gps", &m).is_ok());
+}
+
+/// A synthetic pinned release (no upstream bytes in the repository).
+fn synthetic() -> (KnownRelease, Vec<(String, Vec<u8>)>) {
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    let content = |n: &str| format!("synthetic {n}\n").into_bytes();
+    let fd = |n: &'static str, d: &[u8]| FileDigest {
+        name: n,
+        size: d.len() as u64,
+        sha256: leak(crate::transport::sha256_hex(d)),
+    };
+    let plugin = PLUGIN_FILES.map(|n| fd(n, &content(n)));
+    let k = KnownRelease {
+        tag: "synthetic",
+        title: "t",
+        daemon_build: "Build: v0",
+        plugin_marker: "rhmiapp-0",
+        daemon: fd("nbt-aad", b"daemon"),
+        archive: fd("Releases.zip", b"zip"),
+        plugin,
+    };
+    let entries = PLUGIN_FILES
+        .iter()
+        .rev()
+        .map(|n| (format!("Releases/{n}"), content(n)))
+        .collect();
+    (k, entries)
+}
+
+#[test]
+fn archive_contents_verify_and_come_back_in_canonical_order() {
+    let (k, e) = synthetic();
+    let out = verify_archive_contents(&k, &e).unwrap();
+    let names: Vec<_> = out.iter().map(|(n, _)| *n).collect();
+    assert_eq!(names, PLUGIN_FILES);
+    assert_eq!(out[4].1, b"synthetic libNbtAad.so\n");
+}
+
+#[test]
+fn archive_content_deviations_are_refused() {
+    let (k, e) = synthetic();
+    for i in 0..e.len() {
+        let mut e2 = e.clone();
+        e2[i].1[0] ^= 1;
+        assert!(
+            matches!(
+                verify_archive_contents(&k, &e2),
+                Err(VerifyError::ContentDiffers { what: "sha256", .. })
+            ),
+            "{i}"
+        );
+        let mut e2 = e.clone();
+        e2[i].1.push(b'x');
+        assert!(
+            matches!(
+                verify_archive_contents(&k, &e2),
+                Err(VerifyError::ContentDiffers { what: "size", .. })
+            ),
+            "{i}"
+        );
+    }
+    let mut e2 = e.clone();
+    e2.push(("Releases/extra".into(), vec![]));
+    assert!(matches!(
+        verify_archive_contents(&k, &e2),
+        Err(VerifyError::Layout(_))
+    ));
+    // A pinned digest never matches content from another release.
+    let (_, e3) = synthetic();
+    let real = find_known(KNOWN, "gps").unwrap();
+    assert!(verify_archive_contents(real, &e3).is_err());
+}
+
+#[test]
+fn verify_blob_checks_size_then_digest() {
+    let (k, _) = synthetic();
+    assert!(verify_blob(&k.daemon, b"daemon").is_ok());
+    assert!(matches!(
+        verify_blob(&k.daemon, b"daemoN"),
+        Err(VerifyError::ContentDiffers { what: "sha256", .. })
+    ));
+    assert!(matches!(
+        verify_blob(&k.daemon, b"daemon!"),
+        Err(VerifyError::ContentDiffers { what: "size", .. })
+    ));
+}

@@ -252,5 +252,171 @@ pub fn validate_archive_layout(entries: &[&str]) -> Result<String, LayoutError> 
     Ok(top.to_owned())
 }
 
+/// Look up a pinned release by exact tag.
+pub fn find_known<'a>(table: &'a [KnownRelease], tag: &str) -> Option<&'a KnownRelease> {
+    table.iter().find(|k| k.tag == tag)
+}
+
+/// One release asset as published (GitHub release metadata).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetMeta {
+    pub name: String,
+    pub size: u64,
+    /// GitHub's asset digest, e.g. `sha256:<hex>`; `None` if not published.
+    pub digest: Option<String>,
+    pub url: String,
+}
+
+/// Release metadata as published.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReleaseMeta {
+    pub tag: String,
+    pub draft: bool,
+    pub assets: Vec<AssetMeta>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum VerifyError {
+    #[error("release tag {0:?} is not in the pinned allowlist")]
+    UnknownTag(String),
+    #[error("release metadata is for tag {found:?}, requested {wanted:?}")]
+    TagMismatch { wanted: String, found: String },
+    #[error("release {0:?} is a draft")]
+    Draft(String),
+    #[error("asset {0:?} missing from the release")]
+    MissingAsset(String),
+    #[error("asset {0:?} published more than once")]
+    DuplicateAsset(String),
+    #[error("asset {name:?} has no published sha256 digest")]
+    NoDigest { name: String },
+    #[error("asset {name:?}: published {what} {found} differs from pinned {expected}")]
+    MetaDiffers {
+        name: String,
+        what: &'static str,
+        expected: String,
+        found: String,
+    },
+    #[error("{name:?}: {what} {found} differs from pinned {expected}")]
+    ContentDiffers {
+        name: String,
+        what: &'static str,
+        expected: String,
+        found: String,
+    },
+    #[error("archive layout: {0:?}")]
+    Layout(LayoutError),
+}
+
+/// The assets to download for a pinned release, after checking the
+/// published metadata against the pin (names, sizes, GitHub digests).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Selected<'a> {
+    pub known: &'a KnownRelease,
+    pub daemon: AssetMeta,
+    pub archive: AssetMeta,
+}
+
+/// Check published metadata against the pin before any download. A missing
+/// GitHub digest is an error: there is no fallback to name or size.
+pub fn select_assets<'a>(
+    table: &'a [KnownRelease],
+    wanted_tag: &str,
+    meta: &ReleaseMeta,
+) -> Result<Selected<'a>, VerifyError> {
+    let known =
+        find_known(table, wanted_tag).ok_or_else(|| VerifyError::UnknownTag(wanted_tag.into()))?;
+    if meta.tag != wanted_tag {
+        return Err(VerifyError::TagMismatch {
+            wanted: wanted_tag.into(),
+            found: meta.tag.clone(),
+        });
+    }
+    if meta.draft {
+        return Err(VerifyError::Draft(meta.tag.clone()));
+    }
+    let pick = |want: &FileDigest| -> Result<AssetMeta, VerifyError> {
+        let mut it = meta.assets.iter().filter(|a| a.name == want.name);
+        let a = it
+            .next()
+            .ok_or_else(|| VerifyError::MissingAsset(want.name.into()))?;
+        if it.next().is_some() {
+            return Err(VerifyError::DuplicateAsset(want.name.into()));
+        }
+        if a.size != want.size {
+            return Err(VerifyError::MetaDiffers {
+                name: a.name.clone(),
+                what: "size",
+                expected: want.size.to_string(),
+                found: a.size.to_string(),
+            });
+        }
+        let d = a
+            .digest
+            .as_deref()
+            .and_then(|d| d.strip_prefix("sha256:"))
+            .ok_or_else(|| VerifyError::NoDigest {
+                name: a.name.clone(),
+            })?;
+        if !d.eq_ignore_ascii_case(want.sha256) {
+            return Err(VerifyError::MetaDiffers {
+                name: a.name.clone(),
+                what: "sha256",
+                expected: want.sha256.into(),
+                found: d.into(),
+            });
+        }
+        Ok(a.clone())
+    };
+    Ok(Selected {
+        known,
+        daemon: pick(&known.daemon)?,
+        archive: pick(&known.archive)?,
+    })
+}
+
+/// Verify downloaded or extracted bytes against a pinned digest.
+pub fn verify_blob(want: &FileDigest, data: &[u8]) -> Result<(), VerifyError> {
+    if data.len() as u64 != want.size {
+        return Err(VerifyError::ContentDiffers {
+            name: want.name.into(),
+            what: "size",
+            expected: want.size.to_string(),
+            found: data.len().to_string(),
+        });
+    }
+    let got = crate::transport::sha256_hex(data);
+    if got != want.sha256 {
+        return Err(VerifyError::ContentDiffers {
+            name: want.name.into(),
+            what: "sha256",
+            expected: want.sha256.into(),
+            found: got,
+        });
+    }
+    Ok(())
+}
+
+/// Verify an extracted archive: allowlisted layout, then every plugin file
+/// byte-exact against the pin. Returns the plugin files in
+/// [`PLUGIN_FILES`] order, without the top directory.
+pub fn verify_archive_contents<'d>(
+    known: &KnownRelease,
+    entries: &'d [(String, Vec<u8>)],
+) -> Result<Vec<(&'static str, &'d [u8])>, VerifyError> {
+    let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+    let top = validate_archive_layout(&names).map_err(VerifyError::Layout)?;
+    let mut out = Vec::new();
+    for want in &known.plugin {
+        let path = format!("{top}/{}", want.name);
+        let (_, data) = entries
+            .iter()
+            .find(|(n, _)| *n == path)
+            .ok_or(VerifyError::Layout(LayoutError::Missing(want.name)))?;
+        verify_blob(want, data)?;
+        out.push((want.name, data.as_slice()));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests;

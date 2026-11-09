@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/nbt-aad-core", "crates/nbt-aad-transport-ssh", "crates/nbt-aad-cli"]
+members = ["crates/nbt-aad-core", "crates/nbt-aad-transport-ssh", "crates/nbt-aad-release", "crates/nbt-aad-cli"]
 
 [workspace.package]
 version = "0.0.1"
