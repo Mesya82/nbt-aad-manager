@@ -22,6 +22,15 @@ use zeroize::Zeroizing;
 #[cfg(feature = "testkit")]
 pub mod testkit;
 
+impl From<russh::Error> for SshError {
+    fn from(e: russh::Error) -> Self {
+        match e {
+            russh::Error::KexInit => SshError::KeyExchange,
+            other => SshError::Ssh(other),
+        }
+    }
+}
+
 pub const CLIENT_ID: &str = "SSH-2.0-nbt-aad-manager";
 
 #[derive(Debug, thiserror::Error)]
@@ -40,8 +49,13 @@ pub enum SshError {
     NoHostKey,
     #[error("authentication failed: {0}")]
     AuthFailed(String),
+    #[error(
+        "key exchange failed: the server's reply did not match the negotiated algorithms or limits \
+         (for diffie-hellman-group-exchange-*: DH prime outside the accepted size range)"
+    )]
+    KeyExchange,
     #[error("ssh: {0}")]
-    Ssh(#[from] russh::Error),
+    Ssh(russh::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +66,11 @@ pub struct SshOptions {
     pub keepalive: Duration,
     pub keepalive_max: usize,
     pub handshake_timeout: Duration,
+    /// Accepted DH group-exchange prime sizes (bits): (min, preferred, max).
+    /// Minimum 2048 = OpenSSH's own client minimum (DH_GRP_MIN). russh's
+    /// default minimum of 3072 rejects old servers such as the pilot head
+    /// unit's OpenSSH 5.2, which always answers with the 2048-bit group14 prime.
+    pub gex_bits: (usize, usize, usize),
 }
 
 impl Default for SshOptions {
@@ -61,6 +80,7 @@ impl Default for SshOptions {
             keepalive: Duration::from_secs(10),
             keepalive_max: 3,
             handshake_timeout: Duration::from_secs(20),
+            gex_bits: (2048, 3072, 8192),
         }
     }
 }
@@ -98,6 +118,7 @@ pub fn russh_config(opts: &SshOptions) -> Result<client::Config, SshError> {
             compression: (&[russh::compression::NONE][..]).into(),
             host_key_certificates: (&[][..]).into(),
         },
+        gex: client::GexParams::new(opts.gex_bits.0, opts.gex_bits.1, opts.gex_bits.2)?,
         keepalive_interval: Some(opts.keepalive),
         keepalive_max: opts.keepalive_max,
         inactivity_timeout: None,
@@ -458,6 +479,15 @@ impl HeadUnitTransport for SshTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gex_range_accepts_2048_bit_groups_like_openssh() {
+        let o = SshOptions::default();
+        assert_eq!(o.gex_bits.0, 2048);
+        let cfg = russh_config(&o).unwrap();
+        assert_eq!(cfg.gex.min_group_size(), 2048);
+        assert_eq!(cfg.gex.max_group_size(), 8192);
+    }
 
     #[test]
     fn both_profiles_map_to_this_build() {

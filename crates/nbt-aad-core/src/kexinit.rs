@@ -503,6 +503,50 @@ pub(crate) mod tests {
         )));
     }
 
+    /// Lists exactly as captured from the pilot head unit (probe run 1,
+    /// tests/fixtures/pilot-g31/run1-20261109/ssh-kexinit.txt).
+    #[test]
+    fn pilot_head_unit_fixture_negotiates_as_recorded() {
+        let fixture =
+            include_str!("../../../tests/fixtures/pilot-g31/run1-20261109/ssh-kexinit.txt");
+        let field = |k: &str| {
+            fixture
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{k}: ")))
+                .unwrap()
+        };
+        let lists = [
+            field("kex"),
+            field("host_key"),
+            field("cipher_ctos"),
+            field("cipher_stoc"),
+            field("mac_ctos"),
+            field("mac_stoc"),
+            field("compression_ctos"),
+            field("compression_stoc"),
+            "",
+            "",
+        ];
+        let Parse::Done(s) = parse(&wire(field("banner"), lists)).unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            s.banner,
+            "SSH-2.0-OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6"
+        );
+        let c = negotiate(&AlgorithmProfile::upstream_documented(), &s);
+        assert!(negotiable(&c));
+        for line in fixture
+            .lines()
+            .filter_map(|l| l.strip_prefix("negotiated "))
+        {
+            assert!(
+                c.iter().any(|x| x.to_string() == line),
+                "prediction changed: {line}"
+            );
+        }
+    }
+
     #[test]
     fn aead_cipher_needs_no_mac() {
         let lists = [

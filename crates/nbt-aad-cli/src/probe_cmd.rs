@@ -344,7 +344,10 @@ async fn run(args: ProbeArgs, host: String, node: NodePath) -> ExitCode {
     };
     let choices = kexinit::negotiate(&profile, &algs);
     let mut kx = kexinit::describe(&algs);
-    kx.push_str(&format!("\nclient profile: {}\n", profile.name));
+    kx.push_str(&format!(
+        "\nclient profile: {}\nclient group-exchange prime range: {}..{} bits (preferred {})\n",
+        profile.name, opts.gex_bits.0, opts.gex_bits.2, opts.gex_bits.1
+    ));
     for c in &choices {
         kx.push_str(&format!("negotiated {c}\n"));
     }

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # CI-only (needs sudo, an ephemeral runner): run the release `nbt-aad-manager
 # probe` against REAL OpenSSH servers with a fake read-only head-unit tree.
-#   port 2222: sshd restricted to what upstream's update guide enables
-#              (ssh-rsa/SHA-1 host key, hmac-sha1) + group14-sha256, aes128-ctr -> default profile
+#   port 2222: sshd restricted like the pilot head unit's OpenSSH 5.2 as far as a
+#              modern sshd allows: ssh-rsa/SHA-1 host key, hmac-sha1,
+#              diffie-hellman-group-exchange-sha256, aes128-ctr      -> default profile
 #   port 2223: stock modern sshd algorithms                         -> default profile
 #   port 2224: SHA-1 KEX + CBC only (old OpenSSH)                   -> must refuse by default,
 #              work only with --allow-legacy-weak
@@ -56,7 +57,7 @@ start_sshd() { # port, extra config lines...
 }
 
 start_sshd 2222 "HostKey $W/rsa_key" "HostKeyAlgorithms ssh-rsa" "MACs hmac-sha1" \
-  "KexAlgorithms diffie-hellman-group14-sha256" "Ciphers aes128-ctr"
+  "KexAlgorithms diffie-hellman-group-exchange-sha256" "Ciphers aes128-ctr"
 start_sshd 2223 "HostKey $W/ed_key"
 start_sshd 2224 "HostKey $W/rsa_key" "HostKeyAlgorithms ssh-rsa" "MACs hmac-sha1" \
   "KexAlgorithms diffie-hellman-group14-sha1" "Ciphers aes128-cbc"

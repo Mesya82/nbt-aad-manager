@@ -42,6 +42,10 @@ pub struct ServerOptions {
     pub reject_on: Option<String>,
     /// Send this many extra stdout bytes for `cat /opt/aa/nbt-aad`.
     pub extra_output: usize,
+    /// Answer every DH group-exchange request with the 2048-bit group14
+    /// prime, regardless of the requested range — what OpenSSH 5.x does
+    /// without a usable moduli file (observed on a real NBT EVO, 2026-11-09).
+    pub gex_always_group14: bool,
 }
 
 impl Default for ServerOptions {
@@ -54,6 +58,7 @@ impl Default for ServerOptions {
             hang_on: None,
             reject_on: None,
             extra_output: 0,
+            gex_always_group14: false,
         }
     }
 }
@@ -136,6 +141,28 @@ struct Handler {
 
 impl server::Handler for Handler {
     type Error = russh::Error;
+
+    async fn lookup_dh_gex_group(
+        &mut self,
+        gex_params: &russh::client::GexParams,
+    ) -> Result<Option<russh::kex::dh::groups::DhGroup>, Self::Error> {
+        if self.opts.gex_always_group14 {
+            return Ok(Some(russh::kex::dh::groups::DH_GROUP14.clone()));
+        }
+        // Default russh behaviour: a built-in group within the requested range.
+        let best = [
+            &russh::kex::dh::groups::DH_GROUP14,
+            &russh::kex::dh::groups::DH_GROUP16,
+        ]
+        .into_iter()
+        .rev()
+        .find(|g| {
+            g.bit_size() >= gex_params.min_group_size()
+                && g.bit_size() <= gex_params.max_group_size()
+        })
+        .cloned();
+        Ok(best)
+    }
 
     async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
         let m = match self.opts.auth {

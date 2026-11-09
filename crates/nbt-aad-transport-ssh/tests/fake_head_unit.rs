@@ -454,3 +454,54 @@ async fn sha1_kex_only_server_requires_legacy_weak_opt_in() {
     };
     assert!(login(&server, &weak).await.is_ok());
 }
+
+/// The exact algorithm set of the pilot head unit (OpenSSH_5.2
+/// QNX_Secure_Shell-20090621-hpn13v6, captured by the probe on 2026-11-09),
+/// including its group-exchange behaviour: a 2048-bit prime whatever range
+/// the client asks for. The first real run failed here ("Key exchange init
+/// failed") because russh defaults to a 3072-bit minimum.
+#[tokio::test(flavor = "multi_thread")]
+async fn pilot_head_unit_algorithm_set_with_2048_bit_gex_group() {
+    let rsa = Algorithm::Rsa { hash: None };
+    let opts_srv = ServerOptions {
+        host_key: rsa.clone(),
+        preferred: Some(restricted(
+            &[
+                russh::kex::DH_GEX_SHA256,
+                russh::kex::DH_GEX_SHA1,
+                russh::kex::DH_G14_SHA1,
+                russh::kex::DH_G1_SHA1,
+            ],
+            rsa,
+            &[
+                russh::cipher::AES_128_CTR,
+                russh::cipher::AES_192_CTR,
+                russh::cipher::AES_256_CTR,
+                russh::cipher::AES_128_CBC,
+                russh::cipher::TRIPLE_DES_CBC,
+            ],
+            &[russh::mac::HMAC_SHA1],
+        )),
+        gex_always_group14: true,
+        ..ServerOptions::default()
+    };
+    let server = testkit::start(opts_srv, FakeHu::new()).await;
+    let opts = SshOptions::default();
+    let algs = ssh::capture_server_algorithms(tcp(&server).await, Duration::from_secs(5))
+        .await
+        .unwrap();
+    let choices = kexinit::negotiate(&opts.profile, &algs);
+    assert!(kexinit::negotiable(&choices));
+    assert_eq!(
+        choices[0].chosen.as_deref(),
+        Some("diffie-hellman-group-exchange-sha256")
+    );
+    let mut t = login(&server, &opts)
+        .await
+        .expect("default profile must connect to the pilot head unit's algorithm set");
+    let r = t
+        .exec(&hu_cmd("echo probe-ok"), ExecLimits::default())
+        .await
+        .unwrap();
+    assert_eq!(r.stdout, b"probe-ok\n");
+}

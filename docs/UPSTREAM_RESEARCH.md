@@ -78,3 +78,18 @@ From strings in the `gps` daemon and `pf_aa`; to be confirmed on the device by t
 ### Status of the evidence gate
 
 The facts in the previous section still need on-device confirmation. The read-only probe (`tools/probe/nbt-probe.sh`) collects them, and every remote command is transcribed. Until its output has been reviewed for the pilot profile, write mode stays blocked.
+
+## Pilot head unit evidence
+
+### Probe run 1, 2026-11-09 (Rust probe, Windows 10, direct ENET)
+
+Fixture: `tests/fixtures/pilot-g31/run1-20261109/`.
+
+- **SSH server:** `SSH-2.0-OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6`.
+- **Host keys:** `ssh-rsa`, `ssh-dss`. A modern client needs `ssh-rsa` (SHA-1 signatures), as `updating.md` shows. DSA is **not** required.
+- **Key exchange:** `diffie-hellman-group-exchange-sha256`, `-sha1`, `group14-sha1`, `group1-sha1`. There is no curve25519/ECDH. The server answers group exchange with a **2048-bit** prime, likely the built-in fallback (no usable moduli file).
+- **Ciphers:** aes{128,192,256}-ctr, arcfour*, CBC variants. The same list in both directions.
+- **MACs:** only `hmac-md5`, `hmac-sha1`, `hmac-ripemd160`, and their -96 variants. `hmac-sha1` is required (as in `updating.md`).
+- **Compression:** `none`, `zlib@openssh.com`.
+- **Result:** stopped before login. The client required GEX primes of ≥3072 bits (the `russh` default). Fixed by accepting 2048..8192 bits, the same minimum as OpenSSH's own client. A regression test reproduces the server's behaviour.
+- **Not yet observed:** everything after login (shell, `on -f`, filesystem, installed files).
