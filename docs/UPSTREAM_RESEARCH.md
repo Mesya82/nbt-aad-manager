@@ -32,7 +32,7 @@ This project is based on publicly documented behavior, **not** copied installer 
 3. SSH examples vary between `ssh-rsa` and `ssh-dss`; actual algorithm support must be probed safely and host identity checked.
 4. Upstream update script example deletes existing `.old` copy before replacing it. The manager must **not** follow this destructive practice.
 5. Upstream update does not supply a comprehensive manifest of settings/state; create and verify a profile-specific plan before calling a snapshot complete.
-6. SHA-256 availability on QNX is unknown. Determine if reliable remote readback/streaming exists and test it; otherwise block write mode.
+6. SHA-256 availability on QNX is unknown. Determine if reliable remote readback/streaming exists and test it; otherwise block write mode. **Resolved for the pilot (runs 4–5):** there is no digest tool on hu-omap, but `on … cat <file>` over SSH read back daemon, plugin and backups byte-exactly; the host-side digests matched the upstream assets.
 7. A generic, complete, crash-proof rollback is not guaranteed by QNX. Treat incomplete state and powered-off reboot as different scenarios, never promise unqualified atomicity.
 8. Access to SSH via direct IP or forwarding proxy can affect host-key verification and authentication. Avoid weakening identity checks silently.
 9. Versions in separate release tags may not express daemon/plugin compatibility in SemVer form. Do not infer compatibility based solely on naming convention.
@@ -156,6 +156,30 @@ Fixtures: `tests/fixtures/pilot-g31/run4-20261109-aa-running-usb/` (13:45 UTC, A
 | `/opt/aa/NbtAad.old/` | absent | the previous 5-file plugin (`rhmiapp-36-overlays`) |
 | `nbt-aad.env`, `.env.bak` | 113 B / 112 B | unchanged (same digests) |
 | `/var/opt/aa/bootguard` | absent | 11 B while the daemon runs; absent after it stopped (run 5) |
+
+**Operator procedure (supplied by the operator, compared with `updating.md` at its 2026-11-09 revision)**
+
+The operator followed `updating.md` step by step, with two differences:
+- They skipped `rm -r /opt/aa/nbt-aad.old` and `rm -r /opt/aa/NbtAad.old`, because no backups existed yet.
+- They skipped the `mv …/LibNbtAad.so …/LibNbtAad.so.old` step. As written, this step is a no-op anyway: the file is `libNbtAad.so`, and the filesystem is case-sensitive. The backup folder indeed holds `libNbtAad.so` under its original name.
+
+The sequence and what it implies for the manager:
+
+1. **Remount.** `mount -o remount rw /net/hu-omap/fs/sda0` ran on the **login node**, against hu-omap's filesystem through `/net`, before `on -f /net/hu-omap/ /bin/sh`. The manager's remount step must name this exact form per profile, and verify the result with `test -w` before any write.
+2. **Stop the daemon.** Done with iDrive Force Stop, with `pidin | grep nbt-aad` and `kill` as the fallback.
+3. **Daemon.** `mv nbt-aad nbt-aad.old`, then `cp <usb>/nbt-aad /opt/aa/nbt-aad`, then `chmod +x`. The result is mode 777, and the mtime matches the USB copy.
+4. **Plugin.** `mv …/Plugins/NbtAad /opt/aa/NbtAad.old`, then `mkdir -p …/Plugins/NbtAad`, then `cp <usb>/Releases/* ./`.
+5. **Reboot.** Done by holding the power button for 30 s, **immediately after `cp`**, with no `sync` (absent on the unit) and no verification of the copies. On this unit the copies survived byte-exactly (verified by read-back after the restart). This is one success, not a durability guarantee.
+6. **Verify.** `grep Build /dev/shmem/nbt-aad.log`. With `usblog=1` and a stick inserted, that log is on the stick instead, so this check depends on the daemon's runtime state.
+
+Upstream gives the plugin directory as `release` in one place and `Releases` in another. The operator's stick used `Releases/`.
+
+**Gaps the manager must close (vs. the upstream flow)**
+- No integrity check of the copied files.
+- No durability barrier before the hard reboot.
+- `rm -r` of the existing backups on the next update.
+- No record of the remount state.
+- The rollback is manual.
 
 **Digest provenance (host-side hashing of `cat` read-backs, compared with GitHub asset digests and the release archives):**
 
