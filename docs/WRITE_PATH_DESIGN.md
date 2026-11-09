@@ -77,6 +77,10 @@ There's no `rm`, `rm -r`, `kill`, `slay`, redirection or wildcard. Each `<path>`
 
 ## 5. Recovery and rollback
 
+- **Journal and engine** (implemented in `crates/nbt-aad-core/src/journal.rs`, simulator-only):
+  - **Format.** An append-only, hash-chained, line-based journal. `BEGIN` binds it to the plan digest and op id. An `INTENT` line is durably appended before every mutation, and `DONE` after it. A torn final line counts as a crash during append, not as corruption.
+  - **Tests.** A journal-write failure, clean or torn, was injected at every append, and an execution failure at every mutation. In every case no mutation ran without a recorded intent, foreign backups and env stayed untouched, and recovery restored the original.
+  - **Rule found by testing.** An undo `mv a b` runs only when `a` exists **and** `b` is absent. Every forward move targets a fresh path, so this pair proves the forward move happened. The earlier rule, "source exists" alone, would have moved the still-active old daemon into staging after a torn journal tail.
 - **Recovery** applies when `inspect` gives `MidUpdate`. Match the device state to the journal's last completed step. Then either finish forward (only if every staged digest still verifies) or undo backwards using the table, verifying after each move. If device and journal disagree in any way not covered by the table, stop and print manual instructions.
 - **Rollback** after a completed update swaps active and `…/<op>/old` back with the same S5–S8 pattern into a new `…/<op'>/` directory. The rolled-back-from release is kept, not deleted.
 - Upstream-style `.old` copies (`/opt/aa/nbt-aad.old`, `/opt/aa/NbtAad.old`) count as *foreign backups*. They are reported by `inspect` and never moved or deleted.

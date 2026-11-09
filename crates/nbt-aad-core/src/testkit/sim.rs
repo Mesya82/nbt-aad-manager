@@ -241,3 +241,185 @@ impl SimFs {
         }
     }
 }
+
+impl SimFs {
+    /// Read-only check of a plan verification against the model.
+    pub fn check(&self, v: &crate::plan::Verify) -> bool {
+        use crate::plan::Verify;
+        match v {
+            Verify::Writable(_) => self.remounted,
+            Verify::DirExists(p) => matches!(self.nodes.get(p), Some(SimNode::Dir)),
+            Verify::Absent(p) => !self.nodes.contains_key(p),
+            Verify::Digest { path, size, sha256 } => self
+                .file(path)
+                .is_some_and(|d| d.len() as u64 == *size && sha256_hex(d) == *sha256),
+            Verify::ModeExecutable(p) => {
+                matches!(self.nodes.get(p), Some(SimNode::File { mode, .. }) if mode & 0o111 != 0)
+            }
+            Verify::Operator(_) => true,
+        }
+    }
+}
+
+/// The simulator as an apply-engine executor, with failure injection.
+pub struct SimExecutor {
+    pub fs: SimFs,
+    pub remount: &'static str,
+    /// Fail (without effect) the N-th mutation (0-based).
+    pub fail_at: Option<usize>,
+    pub executed: usize,
+}
+
+impl crate::journal::Executor for SimExecutor {
+    fn exec(&mut self, m: &Mutation) -> Result<(), String> {
+        if self.fail_at == Some(self.executed) {
+            self.executed += 1;
+            return Err("injected failure".into());
+        }
+        self.executed += 1;
+        self.fs.apply(m, self.remount).map_err(|e| format!("{e:?}"))
+    }
+    fn verify(&mut self, v: &crate::plan::Verify) -> bool {
+        self.fs.check(v)
+    }
+    fn exists(&mut self, path: &str) -> bool {
+        self.fs.nodes.contains_key(path)
+    }
+}
+
+/// In-memory journal store with fault injection.
+#[derive(Default, Clone)]
+pub struct MemStore {
+    pub text: String,
+    /// Fail the N-th append (0-based). With `torn`, half the line is
+    /// written first (crash during append).
+    pub fail_at: Option<usize>,
+    pub torn: bool,
+    pub appends: usize,
+}
+
+impl crate::journal::JournalStore for MemStore {
+    fn append(&mut self, line: &str) -> Result<(), crate::journal::StoreError> {
+        if self.fail_at == Some(self.appends) {
+            self.appends += 1;
+            if self.torn {
+                self.text.push_str(&line[..line.len() / 2]);
+            }
+            return Err(crate::journal::StoreError::Io("injected".into()));
+        }
+        self.appends += 1;
+        self.text.push_str(line);
+        Ok(())
+    }
+    fn load(&self) -> Result<String, crate::journal::StoreError> {
+        Ok(self.text.clone())
+    }
+    fn drop_torn_tail(&mut self) -> Result<(), crate::journal::StoreError> {
+        let keep = self.text.rfind('\n').map_or(0, |i| i + 1);
+        self.text.truncate(keep);
+        Ok(())
+    }
+}
+
+/// A complete scenario: the pilot layout after an upstream update
+/// (`old` active, upstream-style foreign backup `older`, protected env) and
+/// a USB stick prepared for `new`, with synthetic pins for all three.
+pub mod scenario {
+    use super::SimFs;
+    use crate::release::{FileDigest, KnownRelease, PLUGIN_FILES};
+    use crate::transport::sha256_hex;
+
+    pub const OP: &str = "20261109T170000Z-abc123";
+    pub const USB: &str = "/mnt/umass0";
+    pub const PD: &str = "/opt/hmi/ID5/data/ro/Plugins/NbtAad";
+    pub const ENV: &[u8] = b"NBT_ALT_WIFI=CARPLAY\n";
+
+    pub fn content(tag: &str, n: &str) -> Vec<u8> {
+        format!("{tag} {n} payload\n").into_bytes()
+    }
+
+    fn fd(tag: &str, n: &'static str) -> FileDigest {
+        let d = content(tag, n);
+        FileDigest {
+            name: n,
+            size: d.len() as u64,
+            sha256: Box::leak(sha256_hex(&d).into_boxed_str()),
+        }
+    }
+
+    fn pin(tag: &'static str) -> KnownRelease {
+        KnownRelease {
+            tag,
+            title: tag,
+            daemon_build: "Build: v0",
+            plugin_marker: "rhmiapp-0",
+            daemon: fd(tag, "nbt-aad"),
+            archive: fd(tag, "Releases.zip"),
+            plugin: PLUGIN_FILES.map(|n| fd(tag, n)),
+        }
+    }
+
+    pub fn table() -> &'static [KnownRelease] {
+        static T: std::sync::LazyLock<Vec<KnownRelease>> =
+            std::sync::LazyLock::new(|| vec![pin("older"), pin("old"), pin("new")]);
+        T.as_slice()
+    }
+
+    pub fn unit() -> SimFs {
+        let mut fs = SimFs::new(&["/opt"]);
+        fs.put("/opt/aa/nbt-aad", &content("old", "nbt-aad"), 0o777);
+        fs.put("/opt/aa/nbt-aad.old", &content("older", "nbt-aad"), 0o777);
+        fs.put("/opt/aa/nbt-aad.env", ENV, 0o666);
+        for n in PLUGIN_FILES {
+            fs.put(&format!("{PD}/{n}"), &content("old", n), 0o666);
+            fs.put(
+                &format!("/opt/aa/NbtAad.old/{n}"),
+                &content("older", n),
+                0o666,
+            );
+        }
+        let usb = format!("{USB}/nbt-aad-{OP}");
+        fs.put(&format!("{usb}/nbt-aad"), &content("new", "nbt-aad"), 0o666);
+        for n in PLUGIN_FILES {
+            fs.put(&format!("{usb}/Releases/{n}"), &content("new", n), 0o666);
+        }
+        fs.put(&format!("{usb}/MANIFEST"), b"op\n", 0o666);
+        fs.put(&format!("{usb}/COMPLETE"), b"done\n", 0o666);
+        fs
+    }
+
+    pub type Snapshot = Vec<(String, Option<Vec<u8>>)>;
+
+    /// Everything outside the plan's reach, byte for byte.
+    pub fn untouchable(fs: &SimFs) -> Snapshot {
+        let mut paths = vec![
+            "/opt/aa/nbt-aad.env".to_owned(),
+            "/opt/aa/nbt-aad.old".to_owned(),
+        ];
+        paths.extend(
+            PLUGIN_FILES
+                .iter()
+                .map(|n| format!("/opt/aa/NbtAad.old/{n}")),
+        );
+        paths
+            .into_iter()
+            .map(|p| {
+                let d = fs.file(&p).map(<[u8]>::to_vec);
+                (p, d)
+            })
+            .collect()
+    }
+
+    /// Active daemon + plugin bytes (to compare with the original).
+    pub fn active(fs: &SimFs) -> Snapshot {
+        let mut paths = vec!["/opt/aa/nbt-aad".to_owned()];
+        paths.extend(PLUGIN_FILES.iter().map(|n| format!("{PD}/{n}")));
+        paths
+            .into_iter()
+            .map(|p| {
+                let d = fs.file(&p).map(<[u8]>::to_vec);
+                (p, d)
+            })
+            .collect()
+    }
+}

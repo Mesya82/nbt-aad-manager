@@ -2,72 +2,11 @@
 //! interruption after every single mutation (power loss / connection loss)
 //! and state-driven recovery from each point.
 
-use crate::plan::{Mutation, UpdatePlan, Verify, ops_root, plan_update};
+use crate::plan::{Mutation, UpdatePlan, ops_root, plan_update};
 use crate::profile::{Backup, InstallState, PILOT_G31, classify_in};
-use crate::release::{FileDigest, KnownRelease, PLUGIN_FILES};
-use crate::testkit::sim::{SimError, SimFs, SimNode};
-use crate::transport::sha256_hex;
-
-const OP: &str = "20261109T170000Z-abc123";
-const USB: &str = "/mnt/umass0";
-const PD: &str = "/opt/hmi/ID5/data/ro/Plugins/NbtAad";
-const ENV: &[u8] = b"NBT_ALT_WIFI=CARPLAY\n";
-
-fn content(tag: &str, n: &str) -> Vec<u8> {
-    format!("{tag} {n} payload\n").into_bytes()
-}
-
-fn fd(tag: &str, n: &'static str) -> FileDigest {
-    let d = content(tag, n);
-    FileDigest {
-        name: n,
-        size: d.len() as u64,
-        sha256: Box::leak(sha256_hex(&d).into_boxed_str()),
-    }
-}
-
-fn pin(tag: &'static str) -> KnownRelease {
-    KnownRelease {
-        tag,
-        title: tag,
-        daemon_build: "Build: v0",
-        plugin_marker: "rhmiapp-0",
-        daemon: fd(tag, "nbt-aad"),
-        archive: fd(tag, "Releases.zip"),
-        plugin: PLUGIN_FILES.map(|n| fd(tag, n)),
-    }
-}
-
-fn table() -> &'static [KnownRelease] {
-    static T: std::sync::LazyLock<Vec<KnownRelease>> =
-        std::sync::LazyLock::new(|| vec![pin("older"), pin("old"), pin("new")]);
-    T.as_slice()
-}
-
-/// The pilot after an upstream update: `old` active, upstream-style foreign
-/// backup `older`, protected env, and a USB stick prepared for `new`.
-fn unit() -> SimFs {
-    let mut fs = SimFs::new(&["/opt"]);
-    fs.put("/opt/aa/nbt-aad", &content("old", "nbt-aad"), 0o777);
-    fs.put("/opt/aa/nbt-aad.old", &content("older", "nbt-aad"), 0o777);
-    fs.put("/opt/aa/nbt-aad.env", ENV, 0o666);
-    for n in PLUGIN_FILES {
-        fs.put(&format!("{PD}/{n}"), &content("old", n), 0o666);
-        fs.put(
-            &format!("/opt/aa/NbtAad.old/{n}"),
-            &content("older", n),
-            0o666,
-        );
-    }
-    let usb = format!("{USB}/nbt-aad-{OP}");
-    fs.put(&format!("{usb}/nbt-aad"), &content("new", "nbt-aad"), 0o666);
-    for n in PLUGIN_FILES {
-        fs.put(&format!("{usb}/Releases/{n}"), &content("new", n), 0o666);
-    }
-    fs.put(&format!("{usb}/MANIFEST"), b"op\n", 0o666);
-    fs.put(&format!("{usb}/COMPLETE"), b"done\n", 0o666);
-    fs
-}
+use crate::release::PLUGIN_FILES;
+use crate::testkit::sim::scenario::{OP, PD, USB, content, table, unit, untouchable};
+use crate::testkit::sim::{SimError, SimFs};
 
 fn state(fs: &SimFs) -> InstallState {
     classify_in(&PILOT_G31, &fs.observe(&PILOT_G31), table())
@@ -79,43 +18,6 @@ fn the_plan(fs: &SimFs, root_exists: bool) -> UpdatePlan {
 
 fn remount() -> &'static str {
     PILOT_G31.remount.value.command
-}
-
-fn check(fs: &SimFs, v: &Verify) -> bool {
-    match v {
-        Verify::Writable(_) => fs.remounted,
-        Verify::DirExists(p) => matches!(fs.nodes.get(p), Some(SimNode::Dir)),
-        Verify::Absent(p) => !fs.nodes.contains_key(p),
-        Verify::Digest { path, size, sha256 } => fs
-            .file(path)
-            .is_some_and(|d| d.len() as u64 == *size && sha256_hex(d) == *sha256),
-        Verify::ModeExecutable(p) => {
-            matches!(fs.nodes.get(p), Some(SimNode::File { mode, .. }) if mode & 0o111 != 0)
-        }
-        Verify::Operator(_) => true,
-    }
-}
-
-type Snapshot = Vec<(String, Option<Vec<u8>>)>;
-
-/// Everything outside the plan's reach, byte for byte.
-fn untouchable(fs: &SimFs) -> Snapshot {
-    let mut paths = vec![
-        "/opt/aa/nbt-aad.env".to_owned(),
-        "/opt/aa/nbt-aad.old".to_owned(),
-    ];
-    paths.extend(
-        PLUGIN_FILES
-            .iter()
-            .map(|n| format!("/opt/aa/NbtAad.old/{n}")),
-    );
-    paths
-        .into_iter()
-        .map(|p| {
-            let d = fs.file(&p).map(<[u8]>::to_vec);
-            (p, d)
-        })
-        .collect()
 }
 
 #[test]
@@ -140,7 +42,7 @@ fn full_apply_reaches_the_target_and_every_verify_holds() {
                 .unwrap_or_else(|e| panic!("{} {m:?}: {e:?}", s.id));
         }
         for v in &s.verify {
-            assert!(check(&fs, v), "{}: {v:?}", s.id);
+            assert!(fs.check(v), "{}: {v:?}", s.id);
         }
     }
     match state(&fs) {
@@ -244,8 +146,9 @@ fn recovery_from_every_interruption_point_restores_the_original() {
         let started = muts[..k].last().map_or(0, |(i, _)| i + 1);
         for s in plan.steps[..started].iter().rev() {
             for u in s.undo.iter().rev() {
-                if let Mutation::Mv { from, .. } = u
+                if let Mutation::Mv { from, to } = u
                     && fs.nodes.contains_key(from)
+                    && !fs.nodes.contains_key(to)
                 {
                     fs.apply(u, remount())
                         .unwrap_or_else(|e| panic!("k={k} {}: {e:?}", s.id));
