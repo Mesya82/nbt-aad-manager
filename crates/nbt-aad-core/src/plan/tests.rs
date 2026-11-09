@@ -42,7 +42,7 @@ fn plan_has_the_designed_steps_in_order() {
 #[test]
 fn only_allowlisted_mutation_kinds_and_no_deletions() {
     for s in plan().steps {
-        for m in s.mutations.iter().chain(&s.undo) {
+        for m in s.mutations.iter().chain(s.undo.iter().map(|u| &u.mutation)) {
             let r = m.render();
             for bad in [
                 "rm ", "rmdir", "kill", "slay", ">", "*", ";", "&", "|", "$", "`",
@@ -60,7 +60,7 @@ fn every_write_target_is_inside_the_op_dir_or_an_exact_active_path() {
     let daemon = "/opt/aa/nbt-aad";
     let plugin = PILOT_G31.plugin_dir;
     for s in &p.steps {
-        for m in s.mutations.iter().chain(&s.undo) {
+        for m in s.mutations.iter().chain(s.undo.iter().map(|u| &u.mutation)) {
             let targets: Vec<&str> = match m {
                 Mutation::Remount { command, .. } => {
                     assert_eq!(command, PILOT_G31.remount.value.command);
@@ -88,7 +88,7 @@ fn every_write_target_is_inside_the_op_dir_or_an_exact_active_path() {
 fn foreign_backups_and_protected_paths_are_never_touched() {
     let p = plan();
     for s in &p.steps {
-        for m in s.mutations.iter().chain(&s.undo) {
+        for m in s.mutations.iter().chain(s.undo.iter().map(|u| &u.mutation)) {
             for path in m.paths() {
                 assert!(!path.starts_with("/opt/aa/nbt-aad.old"), "{path}");
                 assert!(!path.starts_with(PILOT_G31.plugin_backup_dir), "{path}");
@@ -116,10 +116,11 @@ fn every_mv_has_an_exact_inverse_undo() {
             .collect();
         for (from, to) in mvs {
             assert!(
-                s.undo.contains(&Mutation::Mv {
-                    from: to.clone(),
-                    to: from.clone()
-                }),
+                s.undo.iter().any(|u| u.mutation
+                    == Mutation::Mv {
+                        from: to.clone(),
+                        to: from.clone()
+                    }),
                 "{}: no undo for mv {from} {to}",
                 s.id
             );

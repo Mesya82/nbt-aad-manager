@@ -27,7 +27,7 @@ pub struct PlanArgs {
     pub ops_root_exists: bool,
 }
 
-fn op_id() -> String {
+fn op_id() -> Option<String> {
     let now = time::OffsetDateTime::now_utc();
     let stamp = now
         .format(time::macros::format_description!(
@@ -35,12 +35,13 @@ fn op_id() -> String {
         ))
         .unwrap_or_else(|_| "19700101T000000Z".into());
     let mut r = [0u8; 6];
-    let _ = getrandom::fill(&mut r);
+    // A constant suffix would make two operations share a directory.
+    getrandom::fill(&mut r).ok()?;
     let suffix: String = r
         .iter()
         .map(|b| char::from(b"abcdefghijklmnopqrstuvwxyz0123456789"[usize::from(*b) % 36]))
         .collect();
-    format!("{stamp}-{suffix}")
+    Some(format!("{stamp}-{suffix}"))
 }
 
 pub fn main(a: PlanArgs) -> ExitCode {
@@ -62,12 +63,16 @@ pub fn main(a: PlanArgs) -> ExitCode {
         },
     };
     let state = InstallState::Verified { installed, backup };
+    let Some(op) = op_id() else {
+        eprintln!("error: no system randomness for the operation id");
+        return ExitCode::from(2);
+    };
     match plan_update(
         &PILOT_G31,
         &state,
         &a.target,
         KNOWN,
-        &op_id(),
+        &op,
         &a.usb,
         a.ops_root_exists,
     ) {

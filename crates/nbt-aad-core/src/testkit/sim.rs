@@ -20,6 +20,8 @@ pub struct SimFs {
     /// Paths (prefixes) on the read-only filesystem until remounted.
     pub ro_prefixes: Vec<String>,
     pub remounted: bool,
+    /// An `nbt-aad` process is running (autostart / not force-stopped).
+    pub daemon_running: bool,
     /// Every mutation applied, in order (the "mutation counter" of AC-01).
     pub applied: Vec<Mutation>,
 }
@@ -50,6 +52,7 @@ impl SimFs {
             nodes,
             ro_prefixes: ro_prefixes.iter().map(|s| (*s).to_owned()).collect(),
             remounted: false,
+            daemon_running: false,
             applied: Vec::new(),
         }
     }
@@ -233,6 +236,12 @@ impl SimFs {
         o
     }
 
+    /// A head-unit restart: the remount is lost (observed on the pilot).
+    /// Files are kept as they were (the model assumes durable mutations).
+    pub fn restart(&mut self) {
+        self.remounted = false;
+    }
+
     /// Content of a file, if present.
     pub fn file(&self, p: &str) -> Option<&[u8]> {
         match self.nodes.get(p) {
@@ -256,7 +265,10 @@ impl SimFs {
             Verify::ModeExecutable(p) => {
                 matches!(self.nodes.get(p), Some(SimNode::File { mode, .. }) if mode & 0o111 != 0)
             }
-            Verify::Operator(_) => true,
+            Verify::Content { path, data } => self.file(path) == Some(data.as_slice()),
+            Verify::DaemonNotRunning => !self.daemon_running,
+            // Never satisfied automatically.
+            Verify::Operator(_) => false,
         }
     }
 }
@@ -267,23 +279,48 @@ pub struct SimExecutor {
     pub remount: &'static str,
     /// Fail (without effect) the N-th mutation (0-based).
     pub fail_at: Option<usize>,
+    /// Apply the N-th mutation but report an error (lost reply).
+    pub ambiguous_at: Option<usize>,
+    /// Make the N-th check return an error (device could not tell).
+    pub check_error_at: Option<usize>,
     pub executed: usize,
+    pub checks: usize,
+}
+
+impl SimExecutor {
+    pub fn new(fs: SimFs, remount: &'static str) -> Self {
+        Self {
+            fs,
+            remount,
+            fail_at: None,
+            ambiguous_at: None,
+            check_error_at: None,
+            executed: 0,
+            checks: 0,
+        }
+    }
 }
 
 impl crate::journal::Executor for SimExecutor {
     fn exec(&mut self, m: &Mutation) -> Result<(), String> {
-        if self.fail_at == Some(self.executed) {
-            self.executed += 1;
+        let n = self.executed;
+        self.executed += 1;
+        if self.fail_at == Some(n) {
             return Err("injected failure".into());
         }
-        self.executed += 1;
-        self.fs.apply(m, self.remount).map_err(|e| format!("{e:?}"))
+        let r = self.fs.apply(m, self.remount).map_err(|e| format!("{e:?}"));
+        if self.ambiguous_at == Some(n) && r.is_ok() {
+            return Err("injected: reply lost after the mutation ran".into());
+        }
+        r
     }
-    fn verify(&mut self, v: &crate::plan::Verify) -> bool {
-        self.fs.check(v)
-    }
-    fn exists(&mut self, path: &str) -> bool {
-        self.fs.nodes.contains_key(path)
+    fn verify(&mut self, v: &crate::plan::Verify) -> Result<bool, String> {
+        let n = self.checks;
+        self.checks += 1;
+        if self.check_error_at == Some(n) {
+            return Err("injected: check could not be performed".into());
+        }
+        Ok(self.fs.check(v))
     }
 }
 
@@ -384,7 +421,11 @@ pub mod scenario {
             fs.put(&format!("{usb}/Releases/{n}"), &content("new", n), 0o666);
         }
         fs.put(&format!("{usb}/MANIFEST"), b"op\n", 0o666);
-        fs.put(&format!("{usb}/COMPLETE"), b"done\n", 0o666);
+        fs.put(
+            &format!("{usb}/COMPLETE"),
+            crate::plan::complete_marker(OP).as_bytes(),
+            0o666,
+        );
         fs
     }
 

@@ -80,6 +80,17 @@ There's no `rm`, `rm -r`, `kill`, `slay`, redirection or wildcard. Each `<path>`
 - **Journal and engine** (implemented in `crates/nbt-aad-core/src/journal.rs`, simulator-only):
   - **Format.** An append-only, hash-chained, line-based journal. `BEGIN` binds it to the plan digest and op id. An `INTENT` line is durably appended before every mutation, and `DONE` after it. A torn final line counts as a crash during append, not as corruption.
   - **Tests.** A journal-write failure, clean or torn, was injected at every append, and an execution failure at every mutation. In every case no mutation ran without a recorded intent, foreign backups and env stayed untouched, and recovery restored the original.
+  - **Engine rules after the second review.**
+    - **Preconditions.** Each step's typed preconditions are re-checked on the device immediately before it: daemon not running, exact source digests, target absent. Autostart between steps therefore stops the run.
+    - **No guessing on errors.** A check that can't be performed (`Err`) stops apply *and* recovery; it is never taken as "absent" or "not running".
+    - **Operator step.** `apply` stops at S10 with `AWAITING`. `COMPLETE` is written only by `confirm_complete` after a verified post-restart `inspect`.
+    - **Recovery is fully state-driven.** It covers all steps, and each undo runs only if its `only_if` state (exact digests and absences) proves the forward move happened. A journal truncated at a line boundary is therefore harmless.
+    - **Remount.** Recovery re-establishes the remount if a restart reverted it.
+    - **Daemon.** Recovery refuses while the daemon runs.
+    - **Rollback is separate.** Recovery refuses once S8 has been verified, since that is a rollback, a separate operation.
+    - **S9.** S9 verifies the `COMPLETE` bytes.
+  - **Tests.** Clean and torn journal-write failures, failed and lost-reply mutations, and check errors were injected at every point. Restart before recovery, autostart before S5, and a journal truncated to `BEGIN` were also covered.
+  - **Known gap.** `inspect`/`classify` do not yet identify the operation backup under `nbt-aad-ops/<op>/old`. Before `apply` exists, post-restart verification must check it (rules 5 and 7).
   - **Rule found by testing.** An undo `mv a b` runs only when `a` exists **and** `b` is absent. Every forward move targets a fresh path, so this pair proves the forward move happened. The earlier rule, "source exists" alone, would have moved the still-active old daemon into staging after a torn journal tail.
 - **Recovery** applies when `inspect` gives `MidUpdate`. Match the device state to the journal's last completed step. Then either finish forward (only if every staged digest still verifies) or undo backwards using the table, verifying after each move. If device and journal disagree in any way not covered by the table, stop and print manual instructions.
 - **Rollback** after a completed update swaps active and `…/<op>/old` back with the same S5–S8 pattern into a new `…/<op'>/` directory. The rolled-back-from release is kept, not deleted.

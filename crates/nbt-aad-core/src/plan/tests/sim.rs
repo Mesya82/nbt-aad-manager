@@ -2,7 +2,7 @@
 //! interruption after every single mutation (power loss / connection loss)
 //! and state-driven recovery from each point.
 
-use crate::plan::{Mutation, UpdatePlan, ops_root, plan_update};
+use crate::plan::{Mutation, UpdatePlan, Verify, ops_root, plan_update};
 use crate::profile::{Backup, InstallState, PILOT_G31, classify_in};
 use crate::release::PLUGIN_FILES;
 use crate::testkit::sim::scenario::{OP, PD, USB, content, table, unit, untouchable};
@@ -37,6 +37,12 @@ fn full_apply_reaches_the_target_and_every_verify_holds() {
     let keep = untouchable(&fs);
     let plan = the_plan(&fs, false);
     for s in &plan.steps {
+        if s.verify.iter().any(|v| matches!(v, Verify::Operator(_))) {
+            break;
+        }
+        for v in &s.pre {
+            assert!(fs.check(v), "{} pre: {v:?}", s.id);
+        }
         for m in &s.mutations {
             fs.apply(m, remount())
                 .unwrap_or_else(|e| panic!("{} {m:?}: {e:?}", s.id));
@@ -143,14 +149,13 @@ fn recovery_from_every_interruption_point_restores_the_original() {
         for (_, m) in &muts[..k] {
             fs.apply(m, remount()).unwrap();
         }
-        let started = muts[..k].last().map_or(0, |(i, _)| i + 1);
-        for s in plan.steps[..started].iter().rev() {
+        // Model-level recovery (the engine's `recover` is tested in
+        // journal/tests.rs): every step, backwards, each undo only when its
+        // exact-state guard holds. No knowledge of k is used.
+        for s in plan.steps.iter().rev() {
             for u in s.undo.iter().rev() {
-                if let Mutation::Mv { from, to } = u
-                    && fs.nodes.contains_key(from)
-                    && !fs.nodes.contains_key(to)
-                {
-                    fs.apply(u, remount())
+                if u.only_if.iter().all(|v| fs.check(v)) {
+                    fs.apply(&u.mutation, remount())
                         .unwrap_or_else(|e| panic!("k={k} {}: {e:?}", s.id));
                 }
             }

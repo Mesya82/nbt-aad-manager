@@ -41,6 +41,10 @@ pub enum Event {
     Verified {
         step: String,
     },
+    /// Automatic steps done; waiting for the operator (e.g. restart).
+    Awaiting {
+        step: String,
+    },
     Complete,
     /// Recovery finished: the original state was restored and verified.
     RolledBack,
@@ -64,6 +68,7 @@ impl Event {
             Event::Done { step, index } => format!("DONE\t{step}\t{index}"),
             Event::Failed { step, reason } => format!("FAILED\t{step}\t{reason}"),
             Event::Verified { step } => format!("VERIFIED\t{step}"),
+            Event::Awaiting { step } => format!("AWAITING\t{step}"),
             Event::Complete => "COMPLETE".into(),
             Event::RolledBack => "ROLLEDBACK".into(),
         }
@@ -95,6 +100,9 @@ impl Event {
             ["VERIFIED", step] => Event::Verified {
                 step: (*step).into(),
             },
+            ["AWAITING", step] => Event::Awaiting {
+                step: (*step).into(),
+            },
             ["COMPLETE"] => Event::Complete,
             ["ROLLEDBACK"] => Event::RolledBack,
             _ => return None,
@@ -105,13 +113,7 @@ impl Event {
 /// Free text inside a journal field: no separators, bounded.
 fn field(s: &str) -> String {
     s.chars()
-        .map(|c| {
-            if c == '\t' || c == '\n' || c == '\r' {
-                ' '
-            } else {
-                c
-            }
-        })
+        .map(|c| if c.is_control() { ' ' } else { c })
         .take(300)
         .collect()
 }
@@ -191,11 +193,25 @@ pub fn parse(text: &str) -> Result<(Loaded, u64, String), JournalError> {
         })();
         match ok {
             Ok((s, h, e)) if !(last && !ends_clean) => {
-                if i == 0 {
-                    match &e {
-                        Event::Begin { .. } => {}
-                        _ => return Err(bad("first event is not BEGIN")),
+                // Event order: BEGIN first and only once; nothing after a
+                // terminal event; each DONE directly follows its INTENT.
+                match (events.last(), &e) {
+                    (None, Event::Begin { .. }) => {}
+                    (None, _) => return Err(bad("first event is not BEGIN")),
+                    (Some(_), Event::Begin { .. }) => return Err(bad("second BEGIN")),
+                    (Some(Event::Complete | Event::RolledBack), _) => {
+                        return Err(bad("event after a terminal event"));
                     }
+                    (
+                        Some(Event::Intent {
+                            step: s0,
+                            index: i0,
+                            ..
+                        }),
+                        Event::Done { step, index },
+                    ) if s0 == step && i0 == index => {}
+                    (_, Event::Done { .. }) => return Err(bad("DONE without its INTENT")),
+                    _ => {}
                 }
                 seq = s;
                 prev = h;
@@ -269,13 +285,12 @@ pub fn plan_digest(plan: &UpdatePlan) -> String {
     sha256_hex(plan.render().as_bytes())
 }
 
-/// Performs mutations and read-only verification. Implemented by the
-/// simulator only.
+/// Performs mutations and read-only checks. Implemented by the simulator
+/// only. Every call distinguishes "false" from "could not tell" (`Err`): a
+/// transport error must never be read as "absent" or "not running".
 pub trait Executor {
     fn exec(&mut self, m: &Mutation) -> Result<(), String>;
-    fn verify(&mut self, v: &Verify) -> bool;
-    /// Whether a path exists (for state-driven recovery).
-    fn exists(&mut self, path: &str) -> bool;
+    fn verify(&mut self, v: &Verify) -> Result<bool, String>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -284,92 +299,160 @@ pub enum ApplyError {
     Journal(#[from] JournalError),
     #[error("step {step}: mutation failed: {reason}")]
     Mutation { step: String, reason: String },
+    #[error("step {step}: precondition not met: {what}")]
+    Precondition { step: String, what: String },
     #[error("step {step}: verification failed: {what}")]
     Verification { step: String, what: String },
+    #[error("step {step}: device check failed: {reason}")]
+    Check { step: String, reason: String },
     #[error("journal does not belong to this plan")]
     WrongPlan,
+    #[error("all active changes are already verified; this needs a rollback, not a recovery")]
+    UpdateAlreadyApplied,
 }
 
-/// Run the plan. Every mutation is preceded by a durable `Intent` and
-/// followed by `Done`; every step ends with its verifications. Any failure
-/// stops immediately (no retries, no skipping).
+/// How `apply` ended without error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    /// All automatic steps done; the operator must act (restart) before the
+    /// operation may be marked complete with [`confirm_complete`].
+    AwaitingOperator { step: String },
+}
+
+fn fail<S: JournalStore>(j: &mut Journal<S>, step: &str, reason: &str) {
+    let _ = j.append(&Event::Failed {
+        step: step.into(),
+        reason: field(reason),
+    });
+}
+
+/// Check all conditions; any `false` or `Err` stops with a journaled failure.
+fn require<S: JournalStore, E: Executor>(
+    j: &mut Journal<S>,
+    ex: &mut E,
+    step: &str,
+    checks: &[Verify],
+    post: bool,
+) -> Result<(), ApplyError> {
+    for v in checks {
+        match ex.verify(v) {
+            Ok(true) => {}
+            Ok(false) => {
+                let what = format!("{v:?}");
+                fail(j, step, &what);
+                return Err(if post {
+                    ApplyError::Verification {
+                        step: step.into(),
+                        what,
+                    }
+                } else {
+                    ApplyError::Precondition {
+                        step: step.into(),
+                        what,
+                    }
+                });
+            }
+            Err(reason) => {
+                fail(j, step, &reason);
+                return Err(ApplyError::Check {
+                    step: step.into(),
+                    reason,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn run<S: JournalStore, E: Executor>(
+    j: &mut Journal<S>,
+    ex: &mut E,
+    step: &str,
+    index: usize,
+    m: &Mutation,
+) -> Result<(), ApplyError> {
+    j.append(&Event::Intent {
+        step: step.into(),
+        index,
+        mutation: field(&m.render()),
+    })?;
+    if let Err(reason) = ex.exec(m) {
+        fail(j, step, &reason);
+        return Err(ApplyError::Mutation {
+            step: step.into(),
+            reason,
+        });
+    }
+    j.append(&Event::Done {
+        step: step.into(),
+        index,
+    })?;
+    Ok(())
+}
+
+/// Run the plan's automatic steps. Each step's preconditions are re-checked
+/// on the device first; every mutation is preceded by a durable `Intent`;
+/// every step ends with its verifications. Stops at the first failure and
+/// at the first operator step (never marks the operation complete itself).
 pub fn apply<S: JournalStore, E: Executor>(
     plan: &UpdatePlan,
     j: &mut Journal<S>,
     ex: &mut E,
-) -> Result<(), ApplyError> {
+) -> Result<ApplyOutcome, ApplyError> {
     let mut index = 0usize;
     for st in &plan.steps {
+        if st.verify.iter().any(|v| matches!(v, Verify::Operator(_))) {
+            j.append(&Event::Awaiting { step: st.id.into() })?;
+            return Ok(ApplyOutcome::AwaitingOperator { step: st.id.into() });
+        }
+        require(j, ex, st.id, &st.pre, false)?;
         for m in &st.mutations {
-            j.append(&Event::Intent {
-                step: st.id.into(),
-                index,
-                mutation: field(&m.render()),
-            })?;
-            if let Err(reason) = ex.exec(m) {
-                let _ = j.append(&Event::Failed {
-                    step: st.id.into(),
-                    reason: field(&reason),
-                });
-                return Err(ApplyError::Mutation {
-                    step: st.id.into(),
-                    reason,
-                });
-            }
-            j.append(&Event::Done {
-                step: st.id.into(),
-                index,
-            })?;
+            run(j, ex, st.id, index, m)?;
             index += 1;
         }
-        for v in &st.verify {
-            if !ex.verify(v) {
-                let what = format!("{v:?}");
-                let _ = j.append(&Event::Failed {
-                    step: st.id.into(),
-                    reason: field(&what),
-                });
-                return Err(ApplyError::Verification {
-                    step: st.id.into(),
-                    what,
-                });
-            }
-        }
+        require(j, ex, st.id, &st.verify, true)?;
         j.append(&Event::Verified { step: st.id.into() })?;
+    }
+    Err(ApplyError::Verification {
+        step: "PLAN".into(),
+        what: "plan has no operator step".into(),
+    })
+}
+
+/// Record completion after the operator restarted the unit **and** a fresh
+/// inspection verified the target (`post_restart_verified`).
+pub fn confirm_complete<S: JournalStore>(
+    j: &mut Journal<S>,
+    post_restart_verified: bool,
+) -> Result<(), ApplyError> {
+    if !post_restart_verified {
+        fail(
+            j,
+            "S10",
+            "post-restart inspection did not verify the target",
+        );
+        return Err(ApplyError::Verification {
+            step: "S10".into(),
+            what: "post-restart inspection".into(),
+        });
     }
     j.append(&Event::Complete)?;
     Ok(())
 }
 
-/// Steps that may have changed the device: every step with an `Intent`
-/// (a mutation may have run even if its `Done` is missing). With a torn
-/// tail, the step after the last recorded one may also have started.
-fn started_steps(plan: &UpdatePlan, loaded: &Loaded) -> usize {
-    let mut started = 0;
-    for e in &loaded.events {
-        if let Event::Intent { step, .. } = e
-            && let Some(i) = plan.steps.iter().position(|s| s.id == step)
-        {
-            started = started.max(i + 1);
-        }
-    }
-    if loaded.torn_tail {
-        started = (started + 1).min(plan.steps.len());
-    }
-    started
-}
-
-/// Recover after an interruption: undo started steps backwards, applying
-/// each undo `mv` only if its source exists and its target is free
-/// (state-driven), journaling each
-/// as an `Intent`/`Done` under `U<step>`. Then verify the original state via
-/// `verify_original` and record `RolledBack`.
+/// Recover after an interruption, fully state-driven: walk **all** steps
+/// backwards and run each undo only when its `only_if` state (exact digests
+/// and absences) proves the forward mutation happened. The journal binds
+/// the run to this plan and records each recovery mutation; it is not
+/// trusted for which steps ran (it may be truncated). Re-establishes the
+/// remount first if a restart reverted it. Refuses when all active changes
+/// were already verified (that is a rollback, a separate operation).
 pub fn recover<S: JournalStore, E: Executor>(
     plan: &UpdatePlan,
     j: &mut Journal<S>,
     loaded: &Loaded,
     ex: &mut E,
-    verify_original: impl FnOnce(&mut E) -> bool,
+    verify_original: impl FnOnce(&mut E) -> Result<bool, String>,
 ) -> Result<(), ApplyError> {
     match loaded.events.first() {
         Some(Event::Begin {
@@ -377,49 +460,79 @@ pub fn recover<S: JournalStore, E: Executor>(
         }) if *op_id == plan.op_id && *plan_sha256 == plan_digest(plan) => {}
         _ => return Err(ApplyError::WrongPlan),
     }
-    let started = started_steps(plan, loaded);
+    let last_active = plan
+        .steps
+        .iter()
+        .rev()
+        .find(|s| !s.undo.is_empty())
+        .map(|s| s.id);
+    if loaded.events.iter().any(|e| {
+        matches!(e, Event::Awaiting { .. } | Event::Complete)
+            || matches!(e, Event::Verified { step } if Some(step.as_str()) == last_active)
+    }) {
+        return Err(ApplyError::UpdateAlreadyApplied);
+    }
+    require(j, ex, "RECOVER", &[Verify::DaemonNotRunning], false)?;
+
     let mut index = 0usize;
-    for st in plan.steps[..started].iter().rev() {
-        let uid = format!("U{}", st.id);
-        for u in st.undo.iter().rev() {
-            let Mutation::Mv { from, to } = u else {
-                continue;
-            };
-            // The forward move happened iff its result is present and its
-            // origin is free: every forward move targets a fresh path. Both
-            // present means the forward move never ran (e.g. a torn
-            // journal tail made the step look started): leave it.
-            if !ex.exists(from) || ex.exists(to) {
-                continue;
-            }
-            j.append(&Event::Intent {
-                step: uid.clone(),
-                index,
-                mutation: field(&u.render()),
+    // A restart reverts the remount: re-establish it (journaled) if needed.
+    if let Some(s1) = plan.steps.first() {
+        let writable: Vec<Verify> = s1.verify.clone();
+        let ok = writable
+            .iter()
+            .map(|v| ex.verify(v))
+            .collect::<Result<Vec<bool>, String>>()
+            .map_err(|reason| ApplyError::Check {
+                step: "RS1".into(),
+                reason,
             })?;
-            if let Err(reason) = ex.exec(u) {
-                let _ = j.append(&Event::Failed {
-                    step: uid.clone(),
-                    reason: field(&reason),
-                });
-                return Err(ApplyError::Mutation { step: uid, reason });
+        if ok.iter().any(|b| !b) {
+            for m in &s1.mutations {
+                run(j, ex, "RS1", index, m)?;
+                index += 1;
             }
-            j.append(&Event::Done {
-                step: uid.clone(),
-                index,
-            })?;
-            index += 1;
+            require(j, ex, "RS1", &writable, true)?;
         }
     }
-    if !verify_original(ex) {
-        let _ = j.append(&Event::Failed {
-            step: "RECOVER".into(),
-            reason: "original state not restored".into(),
-        });
-        return Err(ApplyError::Verification {
-            step: "RECOVER".into(),
-            what: "original state not restored".into(),
-        });
+    for st in plan.steps.iter().rev() {
+        let uid = format!("U{}", st.id);
+        for u in st.undo.iter().rev() {
+            let mut proven = true;
+            for v in &u.only_if {
+                match ex.verify(v) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        proven = false;
+                        break;
+                    }
+                    Err(reason) => {
+                        fail(j, &uid, &reason);
+                        return Err(ApplyError::Check { step: uid, reason });
+                    }
+                }
+            }
+            if proven {
+                run(j, ex, &uid, index, &u.mutation)?;
+                index += 1;
+            }
+        }
+    }
+    match verify_original(ex) {
+        Ok(true) => {}
+        Ok(false) => {
+            fail(j, "RECOVER", "original state not restored");
+            return Err(ApplyError::Verification {
+                step: "RECOVER".into(),
+                what: "original state not restored".into(),
+            });
+        }
+        Err(reason) => {
+            fail(j, "RECOVER", &reason);
+            return Err(ApplyError::Check {
+                step: "RECOVER".into(),
+                reason,
+            });
+        }
     }
     j.append(&Event::RolledBack)?;
     Ok(())

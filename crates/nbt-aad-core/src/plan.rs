@@ -57,17 +57,42 @@ pub enum Verify {
         sha256: &'static str,
     },
     ModeExecutable(String),
+    /// Exact bytes (small markers written by the tool, e.g. `COMPLETE`).
+    Content {
+        path: String,
+        data: Vec<u8>,
+    },
+    /// No `nbt-aad` process (pidin) on the daemon node.
+    DaemonNotRunning,
+    /// Requires the operator (restart, UI check); never automatic.
     Operator(&'static str),
+}
+
+/// An undo mutation and the exact device state that proves the forward
+/// mutation happened (checked immediately before running the undo).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Undo {
+    pub mutation: Mutation,
+    pub only_if: Vec<Verify>,
+}
+
+/// Content of the `COMPLETE` marker for an operation (prepared on the USB
+/// stick, copied in S9, verified byte-exactly).
+pub fn complete_marker(op_id: &str) -> String {
+    format!("complete {op_id}\n")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Step {
     pub id: &'static str,
     pub purpose: &'static str,
+    /// Re-checked on the device immediately before the step's first mutation.
+    pub pre: Vec<Verify>,
     pub mutations: Vec<Mutation>,
     pub verify: Vec<Verify>,
-    /// Mutations that return the device to the state before this step.
-    pub undo: Vec<Mutation>,
+    /// Mutations that return the device to the state before this step, each
+    /// guarded by the state proving the forward mutation happened.
+    pub undo: Vec<Undo>,
     /// Facts that must be established on hardware before this step may be
     /// implemented for real (`docs/WRITE_PATH_DESIGN.md` section 6).
     pub evidence_needed: &'static [&'static str],
@@ -170,6 +195,7 @@ pub fn plan_update(
     steps.push(Step {
         id: "S1",
         purpose: "make the daemon/plugin filesystem writable",
+        pre: vec![],
         mutations: vec![Mutation::Remount {
             run_on: remount.run_on,
             command: remount.command.to_owned(),
@@ -181,6 +207,7 @@ pub fn plan_update(
     steps.push(Step {
         id: "S2",
         purpose: "create the operation directories (the ops root only if absent)",
+        pre: vec![],
         mutations: (!ops_root_exists)
             .then(|| Mutation::Mkdir(root.clone()))
             .into_iter()
@@ -224,6 +251,7 @@ pub fn plan_update(
     steps.push(Step {
         id: "S3",
         purpose: "stage the verified release next to the targets (same filesystem)",
+        pre: vec![],
         mutations: s3,
         verify: v3,
         undo: vec![],
@@ -232,6 +260,7 @@ pub fn plan_update(
     steps.push(Step {
         id: "S4",
         purpose: "make the staged daemon executable",
+        pre: vec![],
         mutations: vec![Mutation::Chmod755(format!("{new}/nbt-aad"))],
         verify: vec![Verify::ModeExecutable(format!("{new}/nbt-aad"))],
         undo: vec![],
@@ -241,93 +270,133 @@ pub fn plan_update(
         from: a.to_owned(),
         to: b.to_owned(),
     };
+    let dg = |path: String, f: &crate::release::FileDigest| Verify::Digest {
+        path,
+        size: f.size,
+        sha256: f.sha256,
+    };
+    let set = |dir: &str, rel: &KnownRelease| -> Vec<Verify> {
+        rel.plugin
+            .iter()
+            .map(|f| dg(format!("{dir}/{}", f.name), f))
+            .collect()
+    };
+    let old_daemon = format!("{old}/nbt-aad");
+    let new_daemon = format!("{new}/nbt-aad");
+    let old_plugin = format!("{old}/NbtAad");
+    let new_plugin = format!("{new}/NbtAad");
     steps.push(Step {
         id: "S5",
         purpose: "move the stopped daemon into the operation backup",
-        mutations: vec![
-            Mutation::Mkdir(old.clone()),
-            mv(&daemon, &format!("{old}/nbt-aad")),
+        pre: vec![
+            Verify::DaemonNotRunning,
+            dg(daemon.clone(), &from.daemon),
+            Verify::Absent(old.clone()),
         ],
+        mutations: vec![Mutation::Mkdir(old.clone()), mv(&daemon, &old_daemon)],
         verify: vec![
             Verify::Absent(daemon.clone()),
-            Verify::Digest {
-                path: format!("{old}/nbt-aad"),
-                size: from.daemon.size,
-                sha256: from.daemon.sha256,
-            },
+            dg(old_daemon.clone(), &from.daemon),
         ],
-        undo: vec![mv(&format!("{old}/nbt-aad"), &daemon)],
+        undo: vec![Undo {
+            mutation: mv(&old_daemon, &daemon),
+            only_if: vec![
+                Verify::DaemonNotRunning,
+                Verify::Absent(daemon.clone()),
+                dg(old_daemon.clone(), &from.daemon),
+            ],
+        }],
         evidence_needed: EV_MV_STOP,
     });
     steps.push(Step {
         id: "S6",
         purpose: "promote the new daemon",
-        mutations: vec![mv(&format!("{new}/nbt-aad"), &daemon)],
-        verify: vec![Verify::Digest {
-            path: daemon.clone(),
-            size: to.daemon.size,
-            sha256: to.daemon.sha256,
+        pre: vec![
+            Verify::DaemonNotRunning,
+            Verify::Absent(daemon.clone()),
+            dg(new_daemon.clone(), &to.daemon),
+            Verify::ModeExecutable(new_daemon.clone()),
+        ],
+        mutations: vec![mv(&new_daemon, &daemon)],
+        verify: vec![
+            Verify::Absent(new_daemon.clone()),
+            dg(daemon.clone(), &to.daemon),
+        ],
+        undo: vec![Undo {
+            mutation: mv(&daemon, &new_daemon),
+            only_if: vec![
+                Verify::DaemonNotRunning,
+                Verify::Absent(new_daemon.clone()),
+                dg(daemon.clone(), &to.daemon),
+            ],
         }],
-        undo: vec![mv(&daemon, &format!("{new}/nbt-aad"))],
         evidence_needed: EV_MV,
     });
-    let mut v7 = vec![Verify::Absent(plugin.clone())];
-    for f in &from.plugin {
-        v7.push(Verify::Digest {
-            path: format!("{old}/NbtAad/{}", f.name),
-            size: f.size,
-            sha256: f.sha256,
-        });
-    }
+    let mut pre7 = set(&plugin, from);
+    pre7.push(Verify::Absent(old_plugin.clone()));
+    let mut v7 = set(&old_plugin, from);
+    v7.push(Verify::Absent(plugin.clone()));
+    let mut undo7 = set(&old_plugin, from);
+    undo7.push(Verify::Absent(plugin.clone()));
     steps.push(Step {
         id: "S7",
         purpose: "move the active plugin directory into the operation backup",
-        mutations: vec![mv(&plugin, &format!("{old}/NbtAad"))],
+        pre: pre7,
+        mutations: vec![mv(&plugin, &old_plugin)],
         verify: v7,
-        undo: vec![mv(&format!("{old}/NbtAad"), &plugin)],
+        undo: vec![Undo {
+            mutation: mv(&old_plugin, &plugin),
+            only_if: undo7,
+        }],
         evidence_needed: EV_MV_PLUGIN,
     });
-    let v8 = to
-        .plugin
-        .iter()
-        .map(|f| Verify::Digest {
-            path: format!("{plugin}/{}", f.name),
-            size: f.size,
-            sha256: f.sha256,
-        })
-        .collect();
+    let mut pre8 = set(&new_plugin, to);
+    pre8.push(Verify::Absent(plugin.clone()));
+    let mut v8 = set(&plugin, to);
+    v8.push(Verify::Absent(new_plugin.clone()));
+    let mut undo8 = set(&plugin, to);
+    undo8.push(Verify::Absent(new_plugin.clone()));
     steps.push(Step {
         id: "S8",
         purpose: "promote the new plugin directory",
-        mutations: vec![mv(&format!("{new}/NbtAad"), &plugin)],
+        pre: pre8,
+        mutations: vec![mv(&new_plugin, &plugin)],
         verify: v8,
-        undo: vec![mv(&plugin, &format!("{new}/NbtAad"))],
+        undo: vec![Undo {
+            mutation: mv(&plugin, &new_plugin),
+            only_if: undo8,
+        }],
         evidence_needed: EV_MV,
     });
     steps.push(Step {
         id: "S9",
         purpose: "mark the operation complete on the device",
+        pre: vec![Verify::Absent(format!("{op}/COMPLETE"))],
         mutations: vec![Mutation::Cp {
             from: format!("{usb}/COMPLETE"),
             to: format!("{op}/COMPLETE"),
         }],
-        verify: vec![Verify::DirExists(op.clone())],
+        verify: vec![Verify::Content {
+            path: format!("{op}/COMPLETE"),
+            data: complete_marker(op_id).into_bytes(),
+        }],
         undo: vec![],
         evidence_needed: &[],
     });
     steps.push(Step {
         id: "S10",
         purpose: "operator restarts the head unit; then inspect must verify the target",
+        pre: vec![],
         mutations: vec![],
         verify: vec![Verify::Operator(
-            "hold the power button ~30 s, reconnect, run inspect: expect the target verified and the backup = previous release",
+            "hold the power button ~30 s, reconnect, run inspect: expect the target verified and the operation backup = previous release",
         )],
         undo: vec![],
         evidence_needed: EV_MV,
     });
 
     for s in &steps {
-        for m in s.mutations.iter().chain(&s.undo) {
+        for m in s.mutations.iter().chain(s.undo.iter().map(|u| &u.mutation)) {
             for path in m.paths() {
                 if SafePath::new(path).is_none() {
                     return Err(PlanError::UnsafePath(path.to_owned()));
@@ -391,6 +460,9 @@ impl UpdatePlan {
         }
         for st in &self.steps {
             s.push_str(&format!("\n{} {}\n", st.id, st.purpose));
+            for v in &st.pre {
+                s.push_str(&format!("    pre:    {v:?}\n"));
+            }
             for m in &st.mutations {
                 s.push_str(&format!("    do:     {}\n", m.render()));
             }
@@ -398,7 +470,10 @@ impl UpdatePlan {
                 s.push_str(&format!("    verify: {v:?}\n"));
             }
             for u in &st.undo {
-                s.push_str(&format!("    undo:   {}\n", u.render()));
+                s.push_str(&format!("    undo:   {}\n", u.mutation.render()));
+                for v in &u.only_if {
+                    s.push_str(&format!("      only if: {v:?}\n"));
+                }
             }
             for e in st.evidence_needed {
                 s.push_str(&format!("    BLOCKED until hardware evidence: {e}\n"));

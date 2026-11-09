@@ -138,7 +138,7 @@ pub fn prepare(
     write_synced(&staging.join(MANIFEST), manifest.as_bytes())?;
     write_synced(
         &staging.join(COMPLETE),
-        format!("complete {op}\n").as_bytes(),
+        nbt_aad_core::plan::complete_marker(op).as_bytes(),
     )?;
     sync_dir(&rel)?;
     sync_dir(&staging)?;
