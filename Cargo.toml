@@ -1,0 +1,9 @@
+[package]
+name = "nbt-aad-manager"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+description = "Experimental Rust CLI for managing NBT-AAD updates (not ready for vehicle use)"
+repository = "https://github.com/Mesya82/nbt-aad-manager"
+
+[dependencies]

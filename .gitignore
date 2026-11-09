@@ -1,0 +1,21 @@
+/target/
+/.idea/
+/.vscode/
+*.swp
+*.tmp
+*.log
+.env
+*.key
+*.pem
+*.p12
+*.pfx
+*.zip
+*.tar
+*.tar.gz
+*.bin
+backups/
+snapshots/
+fixtures/private/
+
+# Sanitized, license-checked miniature test fixtures may be committed.
+!tests/fixtures/*.zip
