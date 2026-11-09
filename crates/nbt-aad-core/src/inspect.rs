@@ -142,17 +142,19 @@ where
                 Rec {
                     rc: rc_of(&r.outcome),
                     stdout: String::from_utf8_lossy(&r.stdout).into_owned(),
+                    stderr: String::from_utf8_lossy(&r.stderr).into_owned(),
                 },
             );
         }
     }
 
-    // Read-backs only when the daemon-node shell demonstrably works.
+    // Read-backs only on a unit that matches the profile (text facts) and
+    // whose daemon-node shell demonstrably works.
     let mut readbacks = 0;
-    let shell_ok = o
-        .records
-        .get(ids::ON_SHELL)
-        .is_some_and(|r| r.rc == 0 && r.stdout.trim_end() == "probe-ok");
+    let shell_ok = match_profile(p, &o).is_ok()
+        && o.records
+            .get(ids::ON_SHELL)
+            .is_some_and(|r| r.rc == 0 && r.stdout.trim_end() == "probe-ok");
     if shell_ok {
         let daemon_names = [p.daemon_name, p.daemon_backup_name];
         let sets: [(&str, &str, &[&str]); 3] = [

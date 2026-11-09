@@ -1,0 +1,48 @@
+# cargo-fuzz targets (nightly): `cargo +nightly fuzz run <target> fuzz/corpus/<target>`.
+# Not a workspace member. The checked-in corpus is also replayed on stable by
+# `crates/nbt-aad-release/tests/fuzz_corpus.rs` in normal CI.
+[package]
+name = "nbt-aad-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+nbt-aad-core = { path = "../crates/nbt-aad-core" }
+nbt-aad-release = { path = "../crates/nbt-aad-release" }
+
+[workspace]
+
+[[bin]]
+name = "read_zip"
+path = "fuzz_targets/read_zip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "release_json"
+path = "fuzz_targets/release_json.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "archive_layout"
+path = "fuzz_targets/archive_layout.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_ls"
+path = "fuzz_targets/parse_ls.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "readback_tsv"
+path = "fuzz_targets/readback_tsv.rs"
+test = false
+doc = false

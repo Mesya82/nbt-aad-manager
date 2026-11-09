@@ -65,7 +65,7 @@ pub fn main(cmd: ReleaseCmd) -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("error: {e}");
-                    eprintln!("Nothing was written to the final location.");
+                    eprintln!("Nothing was placed at the final location (staging data removed).");
                     ExitCode::from(1)
                 }
             }

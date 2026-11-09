@@ -25,9 +25,11 @@ fn load(run: &str) -> Observation {
         let id = name.split_once('-').unwrap().1.to_owned();
         let rc = std::fs::read_to_string(e.path().join("rc")).unwrap();
         let stdout = std::fs::read_to_string(e.path().join("stdout")).unwrap_or_default();
+        let stderr = std::fs::read_to_string(e.path().join("stderr")).unwrap_or_default();
         o.records.entry(id).or_insert(Rec {
             rc: rc.trim().parse().unwrap(),
             stdout,
+            stderr,
         });
     }
     if let Ok(tsv) = std::fs::read_to_string(dir.join("readback.tsv")) {
@@ -43,6 +45,14 @@ const R5: &str = "run5-20261109-aa-stopped";
 
 fn set_rc(o: &mut Observation, id: &str, rc: i64) {
     o.records.get_mut(id).unwrap().rc = rc;
+}
+
+/// The exact QNX answer for a missing directory.
+fn make_absent(o: &mut Observation, id: &str, path: &str) {
+    let r = o.records.get_mut(id).unwrap();
+    r.rc = 1;
+    r.stdout.clear();
+    r.stderr = format!("ls: No such file or directory ({path})\n");
 }
 
 fn edit_listing(o: &mut Observation, id: &str, f: impl Fn(&str) -> Option<String>) {
@@ -226,7 +236,7 @@ fn half_applied_updates_are_mid_update() {
             drop_file(o, ids::LS_DAEMON_DIR, "nbt-aad")
         }),
         ("plugin moved away, new dir not created", |o| {
-            set_rc(o, ids::LS_PLUGIN, 1)
+            make_absent(o, ids::LS_PLUGIN, PILOT_G31.plugin_dir)
         }),
         ("plugin dir created, nothing copied", |o| {
             o.records.get_mut(ids::LS_PLUGIN).unwrap().stdout = "total 0\n".into()
@@ -247,7 +257,7 @@ fn half_applied_updates_are_mid_update() {
             })
         }),
         ("daemon backed up, plugin not yet", |o| {
-            set_rc(o, ids::LS_PLUGIN_BACKUP, 1)
+            make_absent(o, ids::LS_PLUGIN_BACKUP, PILOT_G31.plugin_backup_dir)
         }),
         ("plugin backed up, daemon not", |o| {
             drop_file(o, ids::LS_DAEMON_DIR, "nbt-aad.old")
@@ -267,7 +277,7 @@ fn half_applied_updates_are_mid_update() {
 fn no_backups_is_verified_without_backup() {
     let mut o = load(R4);
     drop_file(&mut o, ids::LS_DAEMON_DIR, "nbt-aad.old");
-    set_rc(&mut o, ids::LS_PLUGIN_BACKUP, 1);
+    make_absent(&mut o, ids::LS_PLUGIN_BACKUP, PILOT_G31.plugin_backup_dir);
     assert_eq!(*verified(&classify(&PILOT_G31, &o)).1, Backup::None);
 }
 
@@ -470,4 +480,40 @@ fn listing_size_must_equal_read_back_size() {
         })
     });
     assert!(matches!(classify(&PILOT_G31, &o), InstallState::Unknown(_)));
+}
+
+/// A listing that failed for any reason other than the exact "No such file"
+/// answer is not evidence of absence (reviewer finding: a timed-out
+/// `ls NbtAad.old` must not become "no backup present").
+#[test]
+fn failed_listings_are_never_taken_as_absent() {
+    let failures: [(i64, &str); 4] = [
+        (-1, ""),
+        (1, "ls: Permission denied (/opt/aa/NbtAad.old)\n"),
+        (2, "ls: No such file or directory (/opt/aa/NbtAad.old)\n"),
+        (1, "ls: No such file or directory (/opt/aa/NbtAad.ol)\n"),
+    ];
+    for (rc, stderr) in failures {
+        let mut o = load(R4);
+        drop_file(&mut o, ids::LS_DAEMON_DIR, "nbt-aad.old");
+        let r = o.records.get_mut(ids::LS_PLUGIN_BACKUP).unwrap();
+        r.rc = rc;
+        r.stdout.clear();
+        r.stderr = stderr.into();
+        assert!(
+            matches!(classify(&PILOT_G31, &o), InstallState::Unknown(_)),
+            "rc {rc} {stderr:?}: {:?}",
+            classify(&PILOT_G31, &o)
+        );
+    }
+    // Same for the active plugin directory: unknown, not "half-applied".
+    let mut o = load(R4);
+    set_rc(&mut o, ids::LS_PLUGIN, -1);
+    assert!(matches!(classify(&PILOT_G31, &o), InstallState::Unknown(_)));
+    // The real observed answer (run 2) is absence.
+    let o = load(R2);
+    assert!(listing_says_absent(
+        &o.records[ids::LS_PLUGIN_BACKUP],
+        PILOT_G31.plugin_backup_dir
+    ));
 }

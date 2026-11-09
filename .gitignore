@@ -23,3 +23,6 @@ fixtures/private/
 # Probe output (contains device data; never commit)
 nbt-probe-*/
 probe-runs/
+fuzz/target/
+fuzz/artifacts/
+fuzz/coverage/

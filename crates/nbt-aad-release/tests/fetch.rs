@@ -233,7 +233,10 @@ fn oversized_body_is_cut_off() {
     srv.route("/dl/t1/nbt-aad", d);
     let tmp = tempfile::tempdir().unwrap();
     let e = run(&srv, table, tmp.path()).unwrap_err();
-    assert!(matches!(e, FetchError::Http { .. }), "{e}");
+    assert!(
+        matches!(&e, FetchError::Http { msg, .. } if msg.contains("limit")),
+        "{e}"
+    );
     assert_nothing_written(tmp.path());
 }
 
@@ -334,14 +337,71 @@ fn metadata_http_error_is_reported() {
 }
 
 #[test]
-fn stale_partial_staging_is_replaced() {
+fn foreign_staging_leftovers_are_never_touched() {
+    // Unique staging names: a leftover (or a concurrent fetch's staging) is
+    // neither reused nor deleted.
     let (srv, table, _) = setup(good_zip());
     let tmp = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(tmp.path().join(".t1.partial/Releases")).unwrap();
+    std::fs::create_dir_all(tmp.path().join(".t1.partial")).unwrap();
     std::fs::write(tmp.path().join(".t1.partial/junk"), b"x").unwrap();
     let f = run(&srv, table, tmp.path()).unwrap();
     assert!(!f.dir.join("junk").exists());
-    assert!(!tmp.path().join(".t1.partial").exists());
+    assert_eq!(
+        std::fs::read(tmp.path().join(".t1.partial/junk")).unwrap(),
+        b"x"
+    );
+    let names: Vec<String> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names.len(), 2, "{names:?}");
+}
+
+#[test]
+fn existing_empty_directory_is_not_replaced() {
+    let (srv, table, _) = setup(good_zip());
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(tmp.path().join("t1")).unwrap();
+    assert!(matches!(
+        run(&srv, table, tmp.path()),
+        Err(FetchError::Exists(_))
+    ));
+    assert_eq!(std::fs::read_dir(tmp.path().join("t1")).unwrap().count(), 0);
+    assert!(srv.hits().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_symlink_at_target_is_not_replaced() {
+    let (srv, table, _) = setup(good_zip());
+    let tmp = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("/nonexistent/target", tmp.path().join("t1")).unwrap();
+    assert!(matches!(
+        run(&srv, table, tmp.path()),
+        Err(FetchError::Exists(_))
+    ));
+    assert!(
+        std::fs::symlink_metadata(tmp.path().join("t1"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+}
+
+#[test]
+fn asset_url_for_another_tag_is_refused() {
+    let (srv, table, _) = setup(good_zip());
+    let k = table[0];
+    let j = String::from_utf8(meta_json(&srv, &k, None))
+        .unwrap()
+        .replace("/dl/t1/nbt-aad", "/dl/t0/nbt-aad");
+    srv.route("/repos/o/r/releases/tags/t1", j.into_bytes());
+    let tmp = tempfile::tempdir().unwrap();
+    assert!(matches!(
+        run(&srv, table, tmp.path()),
+        Err(FetchError::UrlRefused(_))
+    ));
+    assert_eq!(srv.hits().len(), 1, "only the metadata request");
 }
 
 #[test]

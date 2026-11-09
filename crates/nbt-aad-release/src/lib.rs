@@ -165,6 +165,40 @@ pub fn parse_release_json(body: &[u8]) -> Result<ReleaseMeta, FetchError> {
     })
 }
 
+/// Whether anything (file, directory, symlink — even dangling) is at `p`.
+/// Errors other than "not found" fail closed.
+fn occupied(p: &Path) -> Result<bool, FetchError> {
+    match std::fs::symlink_metadata(p) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(FetchError::Io {
+            path: p.to_owned(),
+            source: e,
+        }),
+    }
+}
+
+fn write_synced(p: &Path, data: &[u8]) -> Result<(), FetchError> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(p).map_err(io(p))?;
+    f.write_all(data).map_err(io(p))?;
+    f.sync_all().map_err(io(p))
+}
+
+/// Persist directory entries (Unix); a no-op where directories cannot be
+/// opened for syncing.
+fn sync_dir(p: &Path) -> Result<(), FetchError> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(p)
+            .and_then(|d| d.sync_all())
+            .map_err(io(p))?;
+    }
+    #[cfg(not(unix))]
+    let _ = p;
+    Ok(())
+}
+
 fn url_allowed(src: &Source, url: &str) -> bool {
     let scheme_ok = url.starts_with("https://")
         || (src.allow_http_loopback && url.starts_with("http://127.0.0.1:"));
@@ -258,7 +292,7 @@ pub fn fetch(
     let known =
         release::find_known(table, tag).ok_or_else(|| VerifyError::UnknownTag(tag.to_owned()))?;
     let final_dir = out.join(known.tag);
-    if final_dir.exists() {
+    if occupied(&final_dir)? {
         return Err(FetchError::Exists(final_dir));
     }
 
@@ -278,7 +312,14 @@ pub fn fetch(
     let sel = select_assets(table, known.tag, &meta)?;
 
     let mut get = |a: &AssetMeta| -> Result<Vec<u8>, FetchError> {
-        if !url_allowed(src, &a.url) || !a.url.starts_with(&src.download_prefix) {
+        // Defense in depth (the digest is checked anyway): the URL must be
+        // this tag's asset of this name under the allowed prefix. Redirects
+        // (GitHub serves assets from another host) stay https-only.
+        let suffix = format!("/{}/{}", known.tag, a.name);
+        if !url_allowed(src, &a.url)
+            || !a.url.starts_with(&src.download_prefix)
+            || !a.url.ends_with(&suffix)
+        {
             return Err(FetchError::UrlRefused(a.url.clone()));
         }
         // ureq treats a body equal to the limit as over it; the exact size
@@ -296,18 +337,19 @@ pub fn fetch(
     let entries = read_zip(&archive, limits)?;
     let plugin = verify_archive_contents(known, &entries)?;
 
-    // Stage, then rename into place.
+    // Stage in a unique directory (removed automatically on any failure),
+    // fsync, re-read, then rename into place only if the target is still free.
     std::fs::create_dir_all(out).map_err(io(out))?;
-    let staging = out.join(format!(".{}.partial", known.tag));
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging).map_err(io(&staging))?;
-    }
+    let tmp = tempfile::Builder::new()
+        .prefix(&format!(".{}.partial-", known.tag))
+        .tempdir_in(out)
+        .map_err(io(out))?;
+    let staging = tmp.path().to_owned();
     let rel = staging.join("Releases");
-    std::fs::create_dir_all(&rel).map_err(io(&rel))?;
+    std::fs::create_dir(&rel).map_err(io(&rel))?;
     let mut sums = String::new();
     let mut write = |relpath: &str, data: &[u8], sha: &str| -> Result<(), FetchError> {
-        let p = staging.join(relpath);
-        std::fs::write(&p, data).map_err(io(&p))?;
+        write_synced(&staging.join(relpath), data)?;
         sums.push_str(&format!("{sha}  {relpath}\n"));
         Ok(())
     };
@@ -316,8 +358,9 @@ pub fn fetch(
         write(&format!("Releases/{name}"), data, fd.sha256)?;
     }
     write(known.archive.name, &archive, known.archive.sha256)?;
-    let sums_path = staging.join("SHA256SUMS");
-    std::fs::write(&sums_path, &sums).map_err(io(&sums_path))?;
+    write_synced(&staging.join("SHA256SUMS"), sums.as_bytes())?;
+    sync_dir(&rel)?;
+    sync_dir(&staging)?;
 
     // Re-read what was written before declaring success.
     for line in sums.lines() {
@@ -330,7 +373,22 @@ pub fn fetch(
             )));
         }
     }
-    std::fs::rename(&staging, &final_dir).map_err(io(&final_dir))?;
+    // Re-check right before the rename (another process may have created
+    // the target during the download). A remaining race window is between
+    // this check and the rename; on Unix an existing non-empty directory
+    // makes the rename fail rather than be replaced.
+    if occupied(&final_dir)? {
+        return Err(FetchError::Exists(final_dir));
+    }
+    let staging = tmp.keep();
+    if let Err(e) = std::fs::rename(&staging, &final_dir) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(FetchError::Io {
+            path: final_dir,
+            source: e,
+        });
+    }
+    sync_dir(out)?;
     Ok(Fetched {
         tag: known.tag,
         dir: final_dir,

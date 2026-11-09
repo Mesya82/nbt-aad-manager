@@ -22,8 +22,11 @@ fn block_on<F: std::future::Future>(f: F) -> F::Output {
 /// Answers exactly the commands recorded in a fixture run; anything else is
 /// a test failure. Records without stored stdout (binary read-backs) are
 /// answered as rejected, so no digest can be fabricated.
+/// stdout (None for binary records), stderr, exit status.
+type Answer = (Option<Vec<u8>>, Vec<u8>, u32);
+
 struct Replay {
-    answers: BTreeMap<String, (Option<Vec<u8>>, u32)>,
+    answers: BTreeMap<String, Answer>,
     unknown: Vec<String>,
 }
 
@@ -43,9 +46,10 @@ impl Replay {
                 .parse()
                 .unwrap();
             let out = std::fs::read(p.join("stdout")).ok();
+            let err = std::fs::read(p.join("stderr")).unwrap_or_default();
             answers
-                .entry(cmd.trim_end_matches('\n').to_owned())
-                .or_insert((out, rc));
+                .entry(cmd.trim_end_matches(['\r', '\n']).to_owned())
+                .or_insert((out, err, rc));
         }
         Self {
             answers,
@@ -61,16 +65,16 @@ impl HeadUnitTransport for Replay {
         _limits: ExecLimits,
     ) -> Result<ExecResult, TransportError> {
         match self.answers.get(command.as_str()) {
-            Some((Some(out), rc)) => Ok(ExecResult {
+            Some((Some(out), err, rc)) => Ok(ExecResult {
                 stdout: out.clone(),
-                stderr: vec![],
+                stderr: err.clone(),
                 stdout_dropped: 0,
                 stderr_dropped: 0,
                 outcome: ExitOutcome::Code(*rc),
                 started: SystemTime::now(),
                 duration: Duration::from_millis(1),
             }),
-            Some((None, _)) => Err(TransportError::Rejected(
+            Some((None, _, _)) => Err(TransportError::Rejected(
                 "binary record not replayable".into(),
             )),
             None => {
@@ -323,9 +327,11 @@ fn profile_mismatch_means_no_state_claim() {
         "/opt/sys/etc/nbt_version.txt".into(),
         Node::File(b"HU_SW=OTHER\n".to_vec()),
     );
-    let (r, _) = inspect_fake(hu);
+    let (r, hu) = inspect_fake(hu);
     assert!(r.profile.is_err());
     assert_eq!(r.state, None);
+    assert_eq!(r.readbacks, 0, "no read-backs on a non-matching unit");
+    assert!(!hu.seen.iter().any(|c| c.contains("cat /opt/aa/")));
 }
 
 #[test]
@@ -453,4 +459,27 @@ fn profile_citing_unknown_probe_ids_is_refused() {
     let mut rec = Recorder::new(updated_unit(), MemSink::default());
     assert!(block_on(run(&mut rec, &p, table(), &InspectConfig::default(), None)).is_err());
     assert_eq!(rec.executed(), 0, "nothing sent with an invalid plan");
+}
+
+/// Pre-update pilot runs (no backups yet): replay with real stderr gives
+/// "absent" for NbtAad.old only because the unit said "No such file".
+#[test]
+fn replayed_absent_backup_uses_the_real_qnx_answer() {
+    let mut rec = Recorder::new(Replay::load("run2-20261109-aa-stopped"), MemSink::default());
+    let r = block_on(run_inspect(
+        &mut rec,
+        &PILOT_G31,
+        KNOWN,
+        Some(BANNER.into()),
+    ))
+    .unwrap();
+    // Run 2 used probe v2: no `hu-sh-echo`/`test -w` records, so the
+    // profile does not match and nothing is claimed or read back.
+    assert!(r.profile.is_err());
+    assert_eq!(r.readbacks, 0);
+    let rec_old = &r.observation.records[ids::LS_PLUGIN_BACKUP];
+    assert!(crate::profile::listing_says_absent(
+        rec_old,
+        PILOT_G31.plugin_backup_dir
+    ));
 }

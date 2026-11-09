@@ -208,8 +208,19 @@ pub const PILOT_G31: HeadUnitProfile = HeadUnitProfile {
 /// One probe record as the matcher needs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rec {
+    /// Exit status; -1 for timeouts, signals or a missing status.
     pub rc: i64,
     pub stdout: String,
+    pub stderr: String,
+}
+
+/// QNX `ls` failure for a missing path, exactly as observed on the pilot
+/// unit (run 2: `ls: No such file or directory (/opt/aa/NbtAad.old)`).
+/// Only this counts as "absent"; any other failure is "not observed".
+pub fn listing_says_absent(r: &Rec, path: &str) -> bool {
+    r.rc == 1
+        && r.stdout.trim().is_empty()
+        && r.stderr.trim_end() == format!("ls: No such file or directory ({path})")
 }
 
 /// What a read-only inspection observed. Source-agnostic: built from a live
@@ -411,10 +422,14 @@ pub enum Backup {
     NotIdentified(Vec<String>),
 }
 
-fn files_of(o: &Observation, id: &str) -> Result<SetState, String> {
+fn files_of(o: &Observation, id: &str, path: &str) -> Result<SetState, String> {
     match o.rec(id) {
         None => Err(format!("{id} not observed")),
-        Some(r) if r.rc != 0 => Ok(SetState::Absent),
+        Some(r) if listing_says_absent(r, path) => Ok(SetState::Absent),
+        Some(r) if r.rc != 0 => Err(format!(
+            "{id}: listing of {path} failed (rc {}) without a 'No such file' answer",
+            r.rc
+        )),
         Some(r) => {
             let mut v = Vec::new();
             for e in parse_ls(&r.stdout) {
@@ -498,7 +513,7 @@ pub fn classify_in(
     o: &Observation,
     table: &'static [KnownRelease],
 ) -> InstallState {
-    let dir = match files_of(o, ids::LS_DAEMON_DIR) {
+    let dir = match files_of(o, ids::LS_DAEMON_DIR, p.daemon_dir) {
         Ok(SetState::Present(v)) => v,
         Ok(SetState::Absent) => {
             return InstallState::Unknown(vec![format!("{} missing", p.daemon_dir)]);
@@ -506,8 +521,8 @@ pub fn classify_in(
         Err(e) => return InstallState::Unknown(vec![e]),
     };
     let (plugin, plugin_bak) = match (
-        files_of(o, ids::LS_PLUGIN),
-        files_of(o, ids::LS_PLUGIN_BACKUP),
+        files_of(o, ids::LS_PLUGIN, p.plugin_dir),
+        files_of(o, ids::LS_PLUGIN_BACKUP, p.plugin_backup_dir),
     ) {
         (Ok(a), Ok(b)) => (a, b),
         (a, b) => {
