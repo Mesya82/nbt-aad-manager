@@ -18,7 +18,7 @@ use crate::transport::{
     sha256_hex,
 };
 
-pub const PROBE_VERSION: u32 = 2;
+pub const PROBE_VERSION: u32 = 3;
 pub const PLUGIN_DIR: &str = "/opt/hmi/ID5/data/ro/Plugins/NbtAad";
 pub const USB_MARKER_NAME: &str = "NBT-Probe-Marker.txt";
 
@@ -241,11 +241,10 @@ pub fn static_plan() -> Vec<PlanEntry> {
         ("outer-ls-opt-aa", Outer, "ls -la /opt/aa".into()),
         ("outer-which-on", Outer, "command -v on".into()),
         ("outer-mount", Outer, "mount".into()),
-        ("outer-df", Outer, "df -k".into()),
-        ("outer-df-P", Outer, "df -kP".into()),
         ("outer-nbt-version", Outer, "cat /opt/sys/etc/nbt_version.txt".into()),
         ("outer-pidin", Outer, "pidin".into()),
-        ("hu-echo", Hu, "echo probe-ok".into()),
+                ("hu-echo", Hu, "echo probe-ok".into()),
+        ("hu-sh-echo", Hu, "/bin/sh -c 'echo probe-ok'".into()),
         ("hu-rc-true", Hu, "true".into()),
         ("hu-rc-false", Hu, "false".into()),
         ("hu-rc-sh7", Hu, "/bin/sh -c 'exit 7'".into()),
@@ -278,14 +277,18 @@ pub fn static_plan() -> Vec<PlanEntry> {
         ("hu-lsd-paths", Hu, format!("ls -ld /opt /opt/aa /opt/hmi /opt/hmi/ID5 /opt/hmi/ID5/data /opt/hmi/ID5/data/ro {P} {P}/NbtAad /fs/sda0 /fs/sda0/opt /fs/sda0/opt/aa /fs/sda1 /var /var/opt /var/opt/aa /mnt /dev/shmem")),
         ("hu-lsdi-paths", Hu, format!("ls -ldi /opt/aa {P} {P}/NbtAad /fs/sda0/opt/aa /var/opt/aa /dev/shmem")),
         ("hu-mount", Hu, "mount".into()),
-        ("hu-df", Hu, "df -k".into()),
-        ("hu-df-P", Hu, "df -kP".into()),
         ("hu-df-paths", Hu, format!("df -k /opt/aa {P} {P}/NbtAad /var/opt/aa /fs/sda0 /fs/sda1 /dev/shmem")),
         ("hu-pidin", Hu, "pidin".into()),
         ("hu-pidin-arg", Hu, "pidin -p nbt-aad arg".into()),
         ("hu-pf-conf", Hu, "cat /fs/sda0/etc/pf.conf".into()),
         ("hu-etc-pf-conf", Hu, "cat /etc/pf.conf".into()),
-        ("hu-ls-pf-bak", Hu, "ls -la /opt/aa/pf.bak".into()),
+                ("hu-ls-pf-bak", Hu, "ls -la /opt/aa/pf.bak".into()),
+        // Read-only mount detection: access(W_OK) fails with EROFS on a
+        // read-only filesystem even for root. Not a write.
+        ("hu-test-w-opt-aa", Hu, "/bin/sh -c 'test -w /opt/aa'".into()),
+        ("hu-test-w-plugin", Hu, format!("/bin/sh -c 'test -w {P}/NbtAad'")),
+        ("hu-test-w-var-opt-aa", Hu, "/bin/sh -c 'test -w /var/opt/aa'".into()),
+        ("hu-test-w-dev-shmem", Hu, "/bin/sh -c 'test -w /dev/shmem'".into()),
     ]
     .into_iter()
     .map(|(id, c, b)| (id.to_owned(), c, b))
@@ -620,11 +623,7 @@ where
             &format!("usb marker expected sha256: {expected_sha}\n"),
         )?;
         let hu = self.hu();
-        for (id, body) in [
-            ("hu-usb-ls-mnt", "ls -la /mnt"),
-            ("hu-usb-mount", "mount"),
-            ("hu-usb-df", "df -k"),
-        ] {
+        for (id, body) in [("hu-usb-ls-mnt", "ls -la /mnt"), ("hu-usb-mount", "mount")] {
             let cmd = GuardedCommand::new(hu.clone(), body).map_err(|source| {
                 ProbeError::PlanInvalid {
                     id: id.into(),
@@ -709,7 +708,9 @@ where
     let mut hu_echo = None;
     for (id, cmd) in &plan {
         let out = r.probe(id, cmd).await?;
-        if id == "hu-echo" {
+        // Sentinel via /bin/sh: `on` executes binaries directly, so shell
+        // built-ins such as `echo` fail through it (pilot head unit, run 2).
+        if id == "hu-sh-echo" {
             hu_echo = out;
         }
     }

@@ -1,0 +1,1 @@
+on -f /net/hu-omap/ /bin/sh -c 'echo "0=$0 SHELL=$SHELL KSH=$KSH_VERSION PATH=$PATH PWD=$PWD"'

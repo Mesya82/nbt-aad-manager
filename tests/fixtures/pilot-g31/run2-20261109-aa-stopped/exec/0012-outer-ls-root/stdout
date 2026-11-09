@@ -1,0 +1,15 @@
+total 326105
+dr-xr-xr-x  2 root      root             50 Jan 01  1970 bin
+dr-xr-xr-x  2 root      root             10 Jan 01  1970 data
+dr-xr-xr-x  2 root      root              0 Jan 01 00:15 dev
+dr-xr-xr-x  2 root      root             30 Jan 01  1970 etc
+dr-xr-xr-x  2 root      root             10 Jan 01  1970 ifs
+dr-xr-xr-x  2 root      root             50 Jan 01  1970 lib
+dr-xr-xr-x  2 root      root              0 Jan 01 00:15 mnt
+dr-xr-xr-x  1 root      root              0 Jan 01 00:15 net
+lrwxrwxrwx  1 root      root             20 Jan 01  1970 opt -> /mnt/application/opt
+dr-xr-xr-x  2 root      root      166961152 Jan 01 00:15 proc
+dr-xr-xr-x  2 root      root              0 Jan 01 00:15 srv
+lrwxrwxrwx  1 root      root             10 Jan 01  1970 tmp -> /dev/shmem
+drwxr-xr-x  2 root      root             10 Jan 01  1970 usr
+d---------  6 root      root            200 Jan 01  1970 var

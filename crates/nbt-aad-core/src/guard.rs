@@ -234,7 +234,11 @@ fn segment_ok(segment: &str) -> Result<(), GuardError> {
             format!(r"^use {tool}$"),
             format!(r"^ls( -[laRdi]+)?( {path})+$"),
             format!(r"^cat {path}$"),
-            format!(r"^df -kP?( {path})*$"),
+            // `df` only with explicit paths: a bare `df` walks every block device
+            // (DVD drive, HDD) and stalled for 7-10 s on the pilot head unit,
+            // coinciding with an Android Auto disconnect.
+            format!(r"^df -kP?( {path})+$"),
+            format!(r"^test -[wrdef] {path}$"),
             format!(r"^(sha256sum|sha256|md5sum|md5|cksum|sum) {path}$"),
             format!(r"^openssl dgst -sha256 {path}$"),
         ]
@@ -353,6 +357,12 @@ mod tests {
         "ls -la /opt//aa",
         "cat /opt/aa/nbt-aad\r",
         "ls -la /opt/aa;",
+        // Pilot run 2 findings.
+        "df -k",
+        "df -kP",
+        "on -f /net/hu-omap/ df -k",
+        "test -w /var/opt/conn",
+        "test -x /opt/aa/nbt-aad; /opt/aa/nbt-aad",
     ];
 
     const MUST_ALLOW: &[&str] = &[

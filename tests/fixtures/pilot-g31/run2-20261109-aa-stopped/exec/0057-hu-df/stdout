@@ -1,0 +1,21 @@
+/dev/blk/ram-0-allo        44032       880     43152       2%  /ramdisk/mm/    
+/var/pps                       0         0         0     100%  /pps            
+/dev/hd0t180             1352688     51796   1300892       4%  /mnt/quota/sys/ 
+/dev/hd0t179            40368112   1254476  39113636       4%  /mnt/quota/mm/  
+/dev/hd0t177           138596336  47414676  91181660      35%  /mnt/data/      
+/mnt/data/iba.bmw/t      1264066   1264066         0     100%  /mnt/data/iba.bm
+/dev/hd0t178            15040496    683152  14357344       5%  /mnt/share/     
+/dev/ramf0t77              14335        77     14258       1%  /fs/ram5/       
+/dev/sda0t4                32716      3428     29288      11%  /fs/sda2/       
+/dev/sda0t180             204768     82072    122696      41%  /fs/sda32/      
+/dev/sda0t177             204768     82100    122668      41%  /fs/sda31/      
+/dev/sda0t178             503776     65260    438516      13%  /fs/sda1/       
+/mnt/data/nav/MISC_          388       388         0     100%  /fs/sda1/opt/nav
+/dev/sda0t179            6655968   5402004   1253964      82%  /fs/sda0/       
+/dev/vstore0                8192      8192         0     100%                  
+/dev/cd0                       0         0         0     100%                  
+/dev/ramf0                 14336     14336         0     100%                  
+/dev/hd0               195360984 195360984         0     100%                  
+/dev/sda0                  16384     16384         0     100%  /dev/sda0t102   
+/dev/sda0                  16384     16384         0     100%  /dev/sda0t101   
+/dev/sda0                7634944   7634944         0     100%                  

@@ -1,0 +1,5 @@
+total 17
+drwxrwxr-x 13 root      root           4096 Jan 01  1970 data
+lrwxrwxrwx  1 root      root              8 Nov 09 13:00 proddata -> /fs/sda2
+dr-xr-xr-x  2 root      root              0 Nov 09 13:00 quota
+drwxrwxr-x 13 root      root           4096 Sep 13  2023 share

@@ -1,0 +1,1 @@
+on -f /net/hu-omap/ ls /nonexistent-nbt-probe

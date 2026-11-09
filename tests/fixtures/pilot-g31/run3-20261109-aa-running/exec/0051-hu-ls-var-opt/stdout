@@ -1,0 +1,11 @@
+total 80
+drwxrwxr-x 10 root      root           4096 Nov 06 12:18 .
+drwxrwxr-x  7 root      root           4096 Nov 06 13:54 ..
+drwxr-xr-x  2 root      root           4096 Nov 09 12:42 aa
+drwxrwx---  3 root      root           4096 Jan 01  2000 car
+drwxrwxr-x  4 conn      conn           4096 Nov 09 12:42 conn
+drwxrwx---  3 root      root           4096 Jan 01  1980 hmi
+drwxrwx---  2 root      root           4096 May 26  2023 mm
+drwxrwx--- 10 root      root           4096 Nov 09 12:42 nav
+drwxrwx---  2 root      root           4096 Jan 01  1970 speech
+drwxrwx---  3 root      root           4096 Jul 15  2018 sys

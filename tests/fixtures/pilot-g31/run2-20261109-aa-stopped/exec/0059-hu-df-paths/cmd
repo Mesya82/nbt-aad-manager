@@ -1,0 +1,1 @@
+on -f /net/hu-omap/ df -k /opt/aa /opt/hmi/ID5/data/ro/Plugins /opt/hmi/ID5/data/ro/Plugins/NbtAad /var/opt/aa /fs/sda0 /fs/sda1 /dev/shmem

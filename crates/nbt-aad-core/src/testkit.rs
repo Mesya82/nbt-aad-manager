@@ -30,6 +30,8 @@ pub struct FakeHu {
     pub hang_on: Option<String>,
     pub on_broken: bool,
     pub eight_col_ls: bool,
+    /// Paths (prefixes) on a read-only mount: `test -w` fails there.
+    pub read_only: Vec<String>,
 }
 
 impl FakeHu {
@@ -101,6 +103,7 @@ impl FakeHu {
             hang_on: None,
             on_broken: false,
             eight_col_ls: false,
+            read_only: vec!["/opt".into(), "/var".into()],
         }
     }
 
@@ -187,6 +190,9 @@ impl FakeHu {
                 o.push_str("uid=0(root) gid=0(root)\n");
                 0
             }
+            ["test", "-w", p] => {
+                u32::from(self.read_only.iter().any(|ro| p.starts_with(ro.as_str())))
+            }
             ["date"] | ["mount"] | ["pidin"] => {
                 o.push_str("fake\n");
                 0
@@ -248,6 +254,16 @@ impl FakeHu {
         if let Some(rest) = body.strip_prefix("on -f /net/hu-omap/ ") {
             if self.on_broken {
                 return (Vec::new(), b"on: not supported\n".to_vec(), 1);
+            }
+            // Real QNX `on` executes a binary directly, without a shell:
+            // shell built-ins are not found (observed on the pilot head unit).
+            let prog = rest.split_whitespace().next().unwrap_or("");
+            if ["echo", "true", "test", "kill", "command", "exit", "cd"].contains(&prog) {
+                return (
+                    Vec::new(),
+                    format!("on: No such file or directory ({prog})\n").into_bytes(),
+                    2,
+                );
             }
             body = rest;
         }

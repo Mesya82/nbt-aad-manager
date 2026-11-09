@@ -1,0 +1,1 @@
+on -f /net/hu-omap/ ls -ld /opt /opt/aa /opt/hmi /opt/hmi/ID5 /opt/hmi/ID5/data /opt/hmi/ID5/data/ro /opt/hmi/ID5/data/ro/Plugins /opt/hmi/ID5/data/ro/Plugins/NbtAad /fs/sda0 /fs/sda0/opt /fs/sda0/opt/aa /fs/sda1 /var /var/opt /var/opt/aa /mnt /dev/shmem

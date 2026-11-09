@@ -26,7 +26,7 @@
 #   private/  raw read-back copies (binaries, unredacted small files) — keep local, never publish
 set -uo pipefail
 
-readonly PROBE_VERSION=1
+readonly PROBE_VERSION=3
 HOST=""
 PORT=22
 USER_NAME=root
@@ -70,7 +70,8 @@ segment_ok() {
      [[ "$s" =~ ^use\ ${RX_TOOL}$ ]] ||
      [[ "$s" =~ ^ls(\ -[laRdi]+)?(\ ${RX_PATH})+$ ]] ||
      [[ "$s" =~ ^cat\ ${RX_PATH}$ ]] ||
-     [[ "$s" =~ ^df\ -kP?(\ ${RX_PATH})*$ ]] ||
+          [[ "$s" =~ ^df\ -kP?(\ ${RX_PATH})+$ ]] ||
+     [[ "$s" =~ ^test\ -[wrdef]\ ${RX_PATH}$ ]] ||
      [[ "$s" =~ ^(sha256sum|sha256|md5sum|md5|cksum|sum)\ ${RX_PATH}$ ]] ||
      [[ "$s" =~ ^openssl\ dgst\ -sha256\ ${RX_PATH}$ ]]; then
     for p in $s; do
@@ -159,11 +160,10 @@ outer-ls-opt	outer	ls -la /opt
 outer-ls-opt-aa	outer	ls -la /opt/aa
 outer-which-on	outer	command -v on
 outer-mount	outer	mount
-outer-df	outer	df -k
-outer-df-P	outer	df -kP
 outer-nbt-version	outer	cat /opt/sys/etc/nbt_version.txt
 outer-pidin	outer	pidin
 hu-echo	hu	echo probe-ok
+hu-sh-echo	hu	/bin/sh -c 'echo probe-ok'
 hu-rc-true	hu	true
 hu-rc-false	hu	false
 hu-rc-sh7	hu	/bin/sh -c 'exit 7'
@@ -196,14 +196,16 @@ hu-ls-dev-shmem	hu	ls -la /dev/shmem
 hu-lsd-paths	hu	ls -ld /opt /opt/aa /opt/hmi /opt/hmi/ID5 /opt/hmi/ID5/data /opt/hmi/ID5/data/ro $P $P/NbtAad /fs/sda0 /fs/sda0/opt /fs/sda0/opt/aa /fs/sda1 /var /var/opt /var/opt/aa /mnt /dev/shmem
 hu-lsdi-paths	hu	ls -ldi /opt/aa $P $P/NbtAad /fs/sda0/opt/aa /var/opt/aa /dev/shmem
 hu-mount	hu	mount
-hu-df	hu	df -k
-hu-df-P	hu	df -kP
 hu-df-paths	hu	df -k /opt/aa $P $P/NbtAad /var/opt/aa /fs/sda0 /fs/sda1 /dev/shmem
 hu-pidin	hu	pidin
 hu-pidin-arg	hu	pidin -p nbt-aad arg
 hu-pf-conf	hu	cat /fs/sda0/etc/pf.conf
 hu-etc-pf-conf	hu	cat /etc/pf.conf
 hu-ls-pf-bak	hu	ls -la /opt/aa/pf.bak
+hu-test-w-opt-aa	hu	/bin/sh -c 'test -w /opt/aa'
+hu-test-w-plugin	hu	/bin/sh -c 'test -w $P/NbtAad'
+hu-test-w-var-opt-aa	hu	/bin/sh -c 'test -w /var/opt/aa'
+hu-test-w-dev-shmem	hu	/bin/sh -c 'test -w /dev/shmem'
 EOF
   local t
   for t in sh ksh on ls cat df mount pidin use sha256sum sha256 sha1sum md5sum md5 cksum sum openssl \
@@ -381,7 +383,8 @@ self_test() {
     'on -f /net/hu-omap/ /bin/sh -c '"'"'rm x'"'"'' 'OnOffDSICommander appreset' 'mkdir /opt/aa/x' 'touch /tmp/x'
     'cat /var/opt/conn/WFDPass.conf' 'cat /fs/sda1/opt/conn/carplay/iap2_Wifi.cfg' 'echo $(id)' 'eval rm'
     'ls; rm x' 'ls && mv a b' 'ls | tee f' 'dd if=/dev/zero of=/x' 'sed -i s/a/b/ f' 'umount /fs/usb0' 'ln -s a b'
-    'cd /opt/aa' 'tar cf - /opt/aa' 'reboot'
+        'cd /opt/aa' 'tar cf - /opt/aa' 'reboot'
+    'df -k' 'df -kP' 'on -f /net/hu-omap/ df -k' 'test -w /var/opt/conn' 'test -x /opt/aa/nbt-aad; /opt/aa/nbt-aad'
     'ls & /opt/aa/nbt-aad' 'on -f /net/hu-omap/ ls & /bin/rm x' 'command /bin/rm -rf /opt/aa' 'command /opt/aa/nbt-aad'
     'openssl dgst -out /opt/aa/nbt-aad /opt/aa/x' 'openssl enc -out /fs/sda0/x' 'date 202601010000' 'uname -S evil'
     'cat /var/opt/aa/../conn/x' 'cat /var/opt/co*/W*' 'cat /var/opt/c?nn/x' $'ls /\nrm x' 'cat /opt/aa/x$IFS'
@@ -577,7 +580,9 @@ while IFS=$'\t' read -r id ctx cmd; do
 done < <(probe_table)
 
 # Stop early if `on` does not work at all — every remaining step depends on it.
-if [[ "$(cat "$REPORT"/exec/*-hu-echo/stdout 2>/dev/null)" != probe-ok* ]]; then
+# Sentinel via /bin/sh: `on` executes binaries directly, so shell built-ins
+# such as `echo` fail when passed to `on` (observed on the pilot head unit).
+if [[ "$(cat "$REPORT"/exec/*-hu-sh-echo/stdout 2>/dev/null)" != probe-ok* ]]; then
   echo "'on -f $HU_NODE' did not work; skipping read-back steps. Send me the folder anyway." >&2
 else
   # 5. Read-back and host-side hashing.
@@ -628,7 +633,7 @@ EOF
     sha256sum "$OUT/$MARKER_NAME" | cut -d' ' -f1 >"$REPORT/usb-marker-expected.sha256"
     probe hu-usb-ls-mnt hu "ls -la /mnt"
     probe hu-usb-mount hu "mount"
-    probe hu-usb-df hu "df -k"
+    
     run_remote "usb-ls-mnt-short" text "$TMPD/mnt" "on -f $HU_NODE ls /mnt"
     tr -s ' \t' '\n\n' <"$TMPD/mnt" >"$TMPD/mnt.list"
     while read -r m; do

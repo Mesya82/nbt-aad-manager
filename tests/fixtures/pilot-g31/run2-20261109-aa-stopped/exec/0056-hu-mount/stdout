@@ -1,0 +1,14 @@
+/net/hu-omap.nbtevo/dev/blk/ram-0-alloc-0-tmp on /ramdisk/mm type tmp 
+/var/pps on /pps type PPS 
+/net/hu-omap.nbtevo/dev/hd0t180 on /mnt/quota/sys type qnx6 
+/net/hu-omap.nbtevo/dev/hd0t179 on /mnt/quota/mm type qnx6 
+/net/hu-omap.nbtevo/dev/hd0t177 on /mnt/data type qnx6 
+/net/hu-omap.nbtevo/mnt/data/iba.bmw/text-ece/iba_text.iso on /mnt/data/iba.bmw/swe1 type cd (rrip) 
+/net/hu-omap.nbtevo/dev/hd0t178 on /mnt/share type qnx6 
+/net/hu-omap.nbtevo/dev/ramf0t77 on /fs/ram5 type qnx4 
+/net/hu-omap.nbtevo/dev/sda0t4 on /fs/sda2 type dos (fat16) 
+/net/hu-omap.nbtevo/dev/sda0t180 on /fs/sda32 type qnx6 
+/net/hu-omap.nbtevo/dev/sda0t177 on /fs/sda31 type qnx6 
+/net/hu-omap.nbtevo/dev/sda0t178 on /fs/sda1 type qnx6 
+/net/hu-omap.nbtevo/mnt/data/nav/MISC_ECE_101173_3_214/MISC.iso on /fs/sda1/opt/nav/db/misc type cd (rrip) 
+/net/hu-omap.nbtevo/dev/sda0t179 on /fs/sda0 type qnx6 

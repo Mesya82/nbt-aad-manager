@@ -4,7 +4,7 @@
 
 | Profile | Vehicle | Head unit | Software | Status | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| planned-pilot-g31 | BMW G31 530i, 2018 | NBT EVO / iDrive 6 (user-reported) | SSH server `OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6` (probe run 1) | **NOT TESTED for this manager** | Read-only probe run 1 (2026-11-09): algorithm capture OK, stopped before login (client GEX minimum too high; fixed). No head-unit commands executed. `tests/fixtures/pilot-g31/run1-20261109/` |
+| planned-pilot-g31 | BMW G31 530i, 2018 | NBT EVO / iDrive 6 (user-reported) | SSH server `OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6` (probe run 1) | **NOT TESTED for this manager** | Read-only probe runs 1–3 (2026-11-09): SSH, shell, `on`, filesystem, tools and installed layout observed; read-backs not yet run; AA disconnect during run 3 (likely bare `df`, removed). `tests/fixtures/pilot-g31/` |
 | other | Other BMW/Toyota models | Various | Unknown | **NOT TESTED / UNSUPPORTED** | None |
 
 ## Android client profiles

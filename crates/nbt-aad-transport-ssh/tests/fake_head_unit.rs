@@ -169,7 +169,7 @@ async fn hung_command_times_out_and_session_stays_usable() {
     let r = t.exec(&hu_cmd("pidin"), limits).await.unwrap();
     assert_eq!(r.outcome, ExitOutcome::TimedOut);
     let r = t
-        .exec(&hu_cmd("echo probe-ok"), ExecLimits::default())
+        .exec(&hu_cmd("/bin/sh -c 'echo probe-ok'"), ExecLimits::default())
         .await
         .unwrap();
     assert_eq!(r.stdout, b"probe-ok\n");
@@ -190,7 +190,7 @@ async fn rejected_exec_is_reported_and_session_stays_usable() {
     let r = t.exec(&hu_cmd("uname -a"), ExecLimits::default()).await;
     assert!(matches!(r, Err(TransportError::Rejected(_))), "{r:?}");
     assert!(
-        t.exec(&hu_cmd("true"), ExecLimits::default())
+        t.exec(&hu_cmd("/bin/sh -c 'true'"), ExecLimits::default())
             .await
             .unwrap()
             .outcome
@@ -299,7 +299,7 @@ async fn upstream_documented_legacy_server_works_with_default_profile() {
         .await
         .unwrap();
     assert_eq!(
-        t.exec(&hu_cmd("echo probe-ok"), ExecLimits::default())
+        t.exec(&hu_cmd("/bin/sh -c 'echo probe-ok'"), ExecLimits::default())
             .await
             .unwrap()
             .stdout,
@@ -340,7 +340,7 @@ async fn cbc_only_server_requires_legacy_weak_opt_in() {
     assert!(login(&server, &default).await.is_err());
     let mut t = login(&server, &weak).await.unwrap();
     assert!(
-        t.exec(&hu_cmd("true"), ExecLimits::default())
+        t.exec(&hu_cmd("/bin/sh -c 'true'"), ExecLimits::default())
             .await
             .unwrap()
             .outcome
@@ -388,7 +388,7 @@ async fn dsa_only_server_requires_legacy_weak_opt_in() {
         .await
         .unwrap();
     assert!(
-        t.exec(&hu_cmd("true"), ExecLimits::default())
+        t.exec(&hu_cmd("/bin/sh -c 'true'"), ExecLimits::default())
             .await
             .unwrap()
             .outcome
@@ -500,8 +500,27 @@ async fn pilot_head_unit_algorithm_set_with_2048_bit_gex_group() {
         .await
         .expect("default profile must connect to the pilot head unit's algorithm set");
     let r = t
-        .exec(&hu_cmd("echo probe-ok"), ExecLimits::default())
+        .exec(&hu_cmd("/bin/sh -c 'echo probe-ok'"), ExecLimits::default())
         .await
         .unwrap();
     assert_eq!(r.stdout, b"probe-ok\n");
+}
+
+/// Pilot head unit, run 2: QNX `on` executes binaries directly, so shell
+/// built-ins fail through it; the same command works via /bin/sh -c.
+#[tokio::test(flavor = "multi_thread")]
+async fn on_runs_binaries_not_shell_builtins() {
+    let server = testkit::start(ServerOptions::default(), FakeHu::new()).await;
+    let mut t = login(&server, &SshOptions::default()).await.unwrap();
+    let direct = t
+        .exec(&hu_cmd("echo probe-ok"), ExecLimits::default())
+        .await
+        .unwrap();
+    assert_eq!(direct.outcome, ExitOutcome::Code(2));
+    assert_eq!(direct.stderr, b"on: No such file or directory (echo)\n");
+    let via_sh = t
+        .exec(&hu_cmd("/bin/sh -c 'echo probe-ok'"), ExecLimits::default())
+        .await
+        .unwrap();
+    assert_eq!(via_sh.stdout, b"probe-ok\n");
 }

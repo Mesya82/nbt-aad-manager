@@ -93,6 +93,9 @@ Preserve prior generations; retention controls must be disabled until thoroughly
 - `on -f <node> <cmd>` exit status, stdout/stderr separation and argument quoting must be measured per profile; if any is lost or altered, the profile is unsupported for writes.
 - A `mv` between different filesystems is copy plus delete, not an atomic rename. Determine the filesystem of every source/destination pair from observation; treat cross-filesystem moves as multi-step, interruptible operations with their own journal entries.
 - Never execute upstream binaries (`nbt-aad`, `pf_aa`) for probing; `pf_aa --check` writes to `/dev/shmem`.
+- QNX `on` runs a binary directly, with no shell. Built-ins (`echo`, `test`, `kill`, ...) must go through `/bin/sh -c`, or the call fails with status 2. Observed on the pilot head unit.
+- Read-only commands can still disturb a live head unit. A bare `df` (all block devices) stalled for 7–10 s and coincided with an Android Auto disconnect. Device-wide commands are forbidden; every command must name its targets.
+- The pilot head unit has no digest tool (`sha256sum`, `md5`, `cksum`, `openssl` are all absent) and no `sync`. Integrity checks use host-side hashing of `cat` read-backs; write durability needs a verified mechanism before any write path exists.
 - A DSA-only host key is unusable with current OpenSSH; refuse with an explicit diagnosis rather than weakening the client.
 
 ## Command transcripts (mandatory)
