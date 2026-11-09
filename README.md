@@ -64,6 +64,7 @@ For the repository owner's Ubuntu-on-WSL setup, see [PUBLISHING.md](PUBLISHING.m
 - [Claude implementation instructions](CLAUDE.md): execution requirements and definition of done.
 - [Compatibility matrix](docs/COMPATIBILITY.md): only explicitly verified setups count as tested.
 - [Implementation issue backlog](docs/ISSUE_BACKLOG.md): sequenced tasks for Claude.
+- [Read-only head-unit probe](tools/probe/README.md): Phase 0 evidence collection; makes no writes.
 
 ## Upstream and licensing
 

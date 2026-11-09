@@ -46,7 +46,8 @@ The command list is a proposed interface, not implemented functionality. UX must
 - `thiserror`/`anyhow`: typed domain errors, context on I/O errors.
 - `tracing`: event-oriented logs with redaction.
 - `tempfile`: safe temporary directories on host.
-- `russh` or subprocess-driven OpenSSH behind an interface: decide only after validating legacy QNX SSH algorithms and Windows behavior. Strong host-key verification is mandatory. Never use `StrictHostKeyChecking=no` silently, or pass passwords as CLI arguments.
+- SSH: because of rule 16 and the Android roadmap, the engine-facing transport must be an **embeddable pure-Rust SSH client** (e.g. `russh`). Android cannot run an OpenSSH subprocess. An OpenSSH subprocess may exist only as a desktop-only diagnostic adapter. Before committing to a library, verify its support for the algorithms the pilot head unit actually offers (probe evidence: `ssh-rsa`/SHA-1 host keys, `hmac-sha1`, possibly `ssh-dss`); legacy algorithms are enabled only per verified profile and clearly warned about. Strong host-key verification is mandatory. Never use `StrictHostKeyChecking=no` silently, or pass passwords as CLI arguments.
+- The transport accepts an **already-connected byte stream** supplied by the platform adapter. The core never resolves or dials hosts itself: Android must bind sockets to the Ethernet `Network`, because link-local ENET routes are otherwise not used.
 - `proptest`/`cargo-fuzz` and a deterministic fake transport: negative and state-machine testing.
 
 Suggested module separation:
@@ -74,6 +75,16 @@ src/
 ```
 
 Do not add these modules as empty placeholders unless a working phase requires them. The architecture is a guide; preserve small, testable boundaries.
+
+**Workspace layout (decided 2026-11-09, ahead of Android A1):** a Cargo workspace from Phase 1.
+
+- `crates/nbt-aad-core`: domain types, release and layout validation, planner, journal state machine, policies and error taxonomy. **sans-IO**: no network, process or filesystem side effects; storage and transport are traits.
+- `crates/nbt-aad-transport-ssh`: the SSH implementation of `HeadUnitTransport`.
+- `crates/nbt-aad-cli`: the desktop adapter.
+
+Decide sync vs. async at the core boundary before Phase 1 code lands, since UniFFI bindings depend on it. Journal and snapshot-index storage go through a storage trait, not host paths.
+
+**Command transcripts:** `HeadUnitTransport` is wrapped by a recording decorator that writes one record per execution before the result is returned. A replay backend serves recorded transcripts to tests. The record layout matches `tools/probe/nbt-probe.sh`; see [SAFETY_AND_RECOVERY.md](SAFETY_AND_RECOVERY.md).
 
 ## 4. Data contracts
 
@@ -154,6 +165,7 @@ Monotonic states and completed steps, plus intended/inventory/observed hashes an
 | Phase | Deliverable | Exit gate |
 | --- | --- | --- |
 | P0 | Upstream audit, QNX assumptions register, compatibility profile schema, sanitized fixtures | Every write command/path and precondition documented or marked unknown |
+| P0b | Read-only probe on the pilot car (`tools/probe/`), run with AA stopped and running; transcripts imported as fixtures | Probe output reviewed; UPSTREAM_RESEARCH unknowns updated; zero writes (probe guard + sandbox tests) |
 | P1 | Rust workspace, CLI, pure planner, release parser, asset validation | Unit/property tests, representative real-release fixtures pass |
 | P2 | Head-unit simulator, fake SSH/USB, journal model, failure injection | All specified state-machine invariants pass |
 | P3 | Read-only SSH detection and dry-run, host-key verification, safe USB prep | Windows/Linux smoke tests; zero write calls in `plan` proven |
@@ -177,7 +189,7 @@ Build a phone client without fragmenting the existing Rust safety model. The And
 
 - **A1: shared Rust core**. Extract domain logic and API contracts, with golden tests proving identical plans/refusals in desktop and Android adapters.
 - **A2: Android read-only connectivity**. Investigate USB-C Ethernet/ENET, Android permissions/network routing, QNX SSH compatibility, host-key trust, and head-unit discovery. No modifications to the vehicle, SSH unlock, or unsupported-model probing.
-- **A3: Android guarded update**. Reuse the same Rust transaction engine. Persist journal and recover safely after USB unplug, network switch, background suspension, process death or SSH timeout. Prove snapshots and rollback through simulator tests before any parked-vehicle pilot.
+- **A3: Android guarded update**. Depends on **SSH-only staging**: the phone's single USB-C port carries the Ethernet adapter, so USB-stick staging is unavailable. Reuse the same Rust transaction engine. Persist journal and recover safely after USB unplug, network switch, background suspension, process death or SSH timeout. Prove snapshots and rollback through simulator tests before any parked-vehicle pilot.
 - **A4: optional SSH unlock**. Separate security/research work only after independently verifying a permitted, documented protocol and validating it. No dependency on third-party opaque APKs or unreviewed binaries. Do not make unlock a prerequisite for using already-enabled SSH.
 - **R1: transparent distribution**. Publish complete sources, pinned build inputs, checksums, signatures, attestations/provenance, SBOM, independent verification steps, Android permission/network audit and reproducibility status. Do not bundle upstream binaries.
 

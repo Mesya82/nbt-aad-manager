@@ -55,7 +55,7 @@ Never download or invoke opaque unlock executables, copy unreviewed APK code, em
 
 ## 6. Mandatory future acceptance criteria
 
-See [TEST_STRATEGY.md](TEST_STRATEGY.md) for stable test IDs **AND-01..AND-08**, **UNLOCK-01..UNLOCK-02** and **REL-01..REL-04**. The existing 35 desktop/core gates remain mandatory. Required Android-specific fault injection includes USB permission denial and removal, routing switch, SSH rejection and disconnect, app suspension/process kill, foreground/background changes, device restart, FFI failure, insufficient space and interrupted rollback.
+See [TEST_STRATEGY.md](TEST_STRATEGY.md) for stable test IDs **AND-01..AND-08**, **UNLOCK-01..UNLOCK-02** and **REL-01..REL-04**. The existing desktop/core gates AC-01..AC-44 remain mandatory. Required Android-specific fault injection includes USB permission denial and removal, routing switch, SSH rejection and disconnect, app suspension/process kill, foreground/background changes, device restart, FFI failure, insufficient space and interrupted rollback.
 
 A real Android + vehicle test profile is only supported after parked-hardware evidence identifies the phone model/Android version, USB Ethernet adapter, ENET cable, head-unit hardware/software, installed NBT-AAD version and outcome of guarded backup/update/rollback.
 

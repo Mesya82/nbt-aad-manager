@@ -92,6 +92,15 @@ Do not assume the correct remedy is always automatic rollback. The pass conditio
 | AC-33 | Rollback restoration of originally absent files and symlinks | Exact original presence, file content and supported metadata |
 | AC-34 | Remote commands return misleading stdout with nonzero status | Status takes precedence and operation stops |
 | AC-35 | Installer crashes with corrupt journal | Fail closed, no unjournaled retry, preserve evidence |
+| AC-36 | Daemon persistent state (`/var/opt/aa/*`), `pf.bak`, `mic.disable`, `NBT_KEEP_PF` in env | Captured in snapshot; byte-identical after update and after rollback |
+| AC-37 | Plugin layout change (7-file <-> 5-file payload), update and rollback | Live plugin dir contains exactly the target release's set; no stale or missing files |
+| AC-38 | Archive asset name/case variants (`Release.zip`, `release.zip`, `releases.zip`, `Releases.zip`) and a release without an archive | Exact classification against allowlisted layouts; unknown layout is not applicable; never guessed |
+| AC-39 | Plugin tree move turns out to be cross-filesystem (copy+delete), interrupted at every step | Detected from observation, journaled per step, reconciled or `MANUAL_RECOVERY_REQUIRED`; never assumed atomic |
+| AC-40 | `on -f` wrapper loses/alters exit status, stream separation or quoting | Capability probe marks profile unsupported; no writes |
+| AC-41 | Server offers only host-key/MAC algorithms the client cannot use (e.g. DSA-only) | Refuse with explicit diagnosis; no silent algorithm weakening |
+| AC-42 | Installed daemon/plugin digest matches no known release | Treated as unknown installation; read-only; no "upgrade from X" claim |
+| AC-43 | Autostart / boot-loop guard state across update and rollback | Preserved byte-equal; the tool never toggles autostart |
+| AC-44 | Every remote execution transcribed; transcript write fails or gap appears | Stop before next command; replaying a recorded transcript reproduces the identical plan/refusal |
 
 Each AC must have a stable test identifier, automated test(s), and recorded passing CI run. A passing mocked call counter by itself is not acceptable evidence: verify resulting simulated filesystem contents, mounts, processes, and journal state.
 
@@ -100,7 +109,7 @@ Each AC must have a stable test identifier, automated test(s), and recorded pass
 **Mandatory for MVP release candidacy:**
 
 1. **100% of defined safety-critical state transitions and rollback edges** tested for success, rejection, interrupted operation, and reconciliation. Maintain a state-transition coverage report.
-2. **100% of the AC-01..AC-35 scenarios passing** on the primary simulator profile; additionally run representative secondary layout/command-variant fixtures.
+2. **100% of the AC-01..AC-44 scenarios passing** on the primary simulator profile; additionally run representative secondary layout/command-variant fixtures.
 3. **At least 90% line and branch coverage of the pure planner, release validator, path validator, snapshot manifest, journal, and recovery policy modules**. Do not pad coverage with trivial tests; review untested lines explicitly. E2E and CLI adapters have their own behavior-based coverage gate.
 4. Property-based testing for arbitrary paths/tags/archive entries and interrupted operations. Ensure reproducible seeds and persist shrinking regression cases.
 5. Fuzzing target(s) for archive metadata, manifest/journal parsing, release tag/path handling; check in regression corpus. CI must run a bounded deterministic fuzz/smoke corpus; schedule longer fuzz campaigns outside normal CI.
@@ -125,6 +134,8 @@ Each AC must have a stable test identifier, automated test(s), and recorded pass
 | `security` | Linux | Dependency audit, secret scanning, archive/path fuzz regression corpus |
 | `coverage` | Linux | Pure-core line + branch threshold and transition coverage report |
 | `build` | Linux + Windows | Release-mode compilation for both target OS families |
+| `probe` | Linux | `tools/probe/nbt-probe.sh --self-test` and `tools/probe/tests/fake-device-test.sh` (read-only sandbox, fault scenarios) |
+| `release-trust` | Linux | Before the first public binary: checksums, SBOM, build provenance attestation, deliberate-failure release-blocker check (REL-01..REL-03) |
 
 CI must never target actual vehicle IPs, enable SSH on vehicles, or run a real remote mutation. Until the suite exists, a green scaffold build **does not imply MVP acceptance**. Track the implementation in a CI gate matrix; do not change README status to ready before all safety gates exist and pass.
 
@@ -148,7 +159,7 @@ Hardware test failure or missing evidence prevents marking that profile `validat
 
 ## 7. Future Android, unlock and release-trust acceptance gates
 
-The following are **additional blockers before an Android build may be advertised for vehicle-modifying use**. They do not replace MVP AC-01..AC-35. Simulator tests run only against mock/fixture backends in CI; all real vehicle validation is manual, parked and documented.
+The following are **additional blockers before an Android build may be advertised for vehicle-modifying use**. They do not replace MVP AC-01..AC-44. Simulator tests run only against mock/fixture backends in CI; all real vehicle validation is manual, parked and documented.
 
 | ID | Required scenario | Acceptance evidence |
 | --- | --- | --- |
@@ -168,3 +179,24 @@ The following are **additional blockers before an Android build may be advertise
 | REL-04 | APK supply-chain audit | Review signing certificate, permissions, libraries, network egress and embedded secrets |
 
 A successful simulator run or signed APK does **not** prove safety or compatibility on arbitrary BMW/Toyota head units. See [ANDROID_AND_RELEASE_TRUST.md](ANDROID_AND_RELEASE_TRUST.md).
+
+## 8. Transcript-driven fixtures and replay
+
+Real-device behaviour enters the test suite only through recorded transcripts (see "Command transcripts" in [SAFETY_AND_RECOVERY.md](SAFETY_AND_RECOVERY.md)). The pipeline:
+
+1. The read-only probe (`tools/probe/`) and every later real run record each remote execution.
+2. Sanitized transcripts are committed as pinned fixtures, with provenance (probe version, profile, date, AA running or stopped).
+3. The simulator is calibrated against them. For each recorded command, the simulator's stdout, stderr and status shape must match the fixture.
+4. A replay transport feeds a transcript to the engine. The resulting plan or refusal must be identical across runs and across adapters (desktop CLI now; Android later, AND-01).
+
+A simulator behaviour without a backing fixture is labelled `assumed` in the test name or metadata. Assumed behaviours cannot be the only evidence for a write-path acceptance criterion.
+
+## 9. Traceability for CLAUDE.md rules 16-20
+
+| Rule | Requirement | Test IDs |
+| --- | --- | --- |
+| 16 | Single Rust engine; adapters only | AND-01, AC-44 (replay equivalence) |
+| 17 | Desktop MVP unchanged; Android separately gated | AND-07, AND-08 |
+| 18 | SSH unlock is optional, evidence-gated | UNLOCK-01, UNLOCK-02, AND-04 |
+| 19 | Verifiable public releases | REL-01, REL-02, REL-03 |
+| 20 | Android release review | AND-05, AND-06, REL-04 |

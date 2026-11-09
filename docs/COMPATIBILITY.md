@@ -7,6 +7,14 @@
 | planned-pilot-g31 | BMW G31 530i, 2018 | NBT EVO / iDrive 6 (user-reported) | To be probed | **NOT TESTED for this manager** | Planned single-car pilot; no validated runs yet |
 | other | Other BMW/Toyota models | Various | Unknown | **NOT TESTED / UNSUPPORTED** | None |
 
+## Android client profiles
+
+No Android profile exists or is supported. A row requires the exact phone model, Android version, USB Ethernet adapter (chipset), ENET cable, head-unit hardware/software and installed NBT-AAD build, plus parked-hardware evidence (AND-08).
+
+| Profile | Phone / Android | USB Ethernet adapter | ENET cable | Head unit / software | NBT-AAD build | Status | Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| (none) | - | - | - | - | - | **NOT TESTED / UNSUPPORTED** | None |
+
 ## Rules
 
 - "Tested" means an actual recorded hardware procedure completed, not that upstream NBT-AAD works on a vehicle.

@@ -65,7 +65,9 @@ A conservative initial inventory is:
 
 - `/opt/aa/nbt-aad` (daemon), plus any existing `.old` variants and existing operation-specific staging paths.
 - `/opt/hmi/ID5/data/ro/Plugins/NbtAad/` including exact case and any currently installed plugin payload.
-- `/opt/aa/nbt-aad.env`, and other discovered NBT-AAD config only when explicitly in-scope.
+- `/opt/aa/nbt-aad.env` (which also contains installer-written state such as `NBT_KEEP_PF=1`), and other discovered NBT-AAD config only when explicitly in-scope.
+- Daemon persistent state under `/var/opt/aa/` (e.g. `bootguard`, `usb-aa`, `usblog`, `menu-idrive`, `show-drivemode`, `kombi-nav`, `spp-model`, `touch-peer`). Byte-exact capture and restore; some files may identify the user's phone, so keep them out of shareable logs.
+- `/opt/aa/pf.bak` and `/opt/aa/mic.disable` when present. Record `/fs/sda0/etc/pf.conf` as an observation (digest + presence); never edit it in MVP.
 - File permissions, executable bits, symlinks, source paths, original presence/absence and supported owner/group metadata.
 - Relevant system observations such as installed build, process state, filesystem mount mode, available disk space and available recovery commands. These observations are not themselves necessarily restorable state.
 - Relevant persistent changes such as a previously installed firewall helper or startup marker must be *identified and documented*; never edit them in MVP without dedicated profile-specific evidence and safe migration design.
@@ -88,6 +90,28 @@ Preserve prior generations; retention controls must be disabled until thoroughly
 - The upstream guide replaces `.old` by deleting the previous copy before each run. **Do not reproduce this deletion**: create immutable, uniquely named snapshots so recovery history survives repeated updates.
 - Avoid any assumption that `scp`, `sftp`, `tar`, `sha256sum`, `stat`, `sync`, `killall`, GNU `mv`, or `rm -r` behave as on Linux.
 - Process quiescence and plugin state must be observed, not assumed; reboot must remain human-confirmed until validated.
+- `on -f <node> <cmd>` exit status, stdout/stderr separation and argument quoting must be measured per profile; if any is lost or altered, the profile is unsupported for writes.
+- A `mv` between different filesystems is copy plus delete, not an atomic rename. Determine the filesystem of every source/destination pair from observation; treat cross-filesystem moves as multi-step, interruptible operations with their own journal entries.
+- Never execute upstream binaries (`nbt-aad`, `pf_aa`) for probing; `pf_aa --check` writes to `/dev/shmem`.
+- A DSA-only host key is unusable with current OpenSSH; refuse with an explicit diagnosis rather than weakening the client.
+
+## Command transcripts (mandatory)
+
+Every remote command execution, in probing, planning, apply, verify and rollback alike, is recorded before its result is acted upon. Each record holds sequence number, phase, execution context (login shell or `on -f <node>`), the exact command, exit status, start time and duration, and stdout/stderr byte counts and SHA-256.
+
+- `text` output is stored, raw in a private area and redacted in shareable logs.
+- `binary` output (file read-back) is stored only as a digest plus a private copy.
+- `secret` output (volatile logs) is hashed and discarded.
+
+A gap in the transcript, such as a failed record write or an execution with no record, is a stop condition.
+
+Transcripts serve three purposes:
+
+- They are the evidence for reconciliation after interruption.
+- They are the source of the pinned QNX fixtures.
+- They are the input of a replay transport. Replaying a transcript must reproduce the identical plan or refusal.
+
+The record layout is shared with `tools/probe/nbt-probe.sh`, so probe runs import directly as fixtures.
 
 ## Failure classes
 
