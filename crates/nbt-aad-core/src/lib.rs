@@ -5,6 +5,7 @@
 //! (desktop CLI now, Android later). NOT READY FOR VEHICLE USE beyond the
 //! read-only probe.
 
+pub mod experiment;
 pub mod guard;
 pub mod inspect;
 pub mod journal;

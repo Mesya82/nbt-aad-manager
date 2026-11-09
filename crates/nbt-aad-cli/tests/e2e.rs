@@ -534,3 +534,116 @@ fn usb_prepare_refuses_unverifiable_input_without_writing() {
     assert_eq!(o.status.code(), Some(1));
     assert_eq!(std::fs::read_dir(usb.path()).unwrap().count(), 0);
 }
+
+fn run_e1(e: &Env, usb: &Path, stdin: &str) -> (i32, String) {
+    let port = e.server.addr.port().to_string();
+    let out = e.dir.path().to_str().unwrap().to_owned();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args([
+            "experiment-e1",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port,
+            "--password-stdin",
+            "--cmd-timeout",
+            "5",
+            "--out",
+            &out,
+            "--usb",
+        ])
+        .arg(usb)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    let o = child.wait_with_output().unwrap();
+    (
+        o.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&o.stderr).into_owned(),
+    )
+}
+
+fn is_write(c: &str) -> bool {
+    ["mount -o", "mkdir ", " cp ", "chmod ", " mv "]
+        .iter()
+        .any(|m| c.contains(m))
+}
+
+#[test]
+fn e1_on_a_non_matching_unit_writes_nothing() {
+    let e = env(ServerOptions::default());
+    let usb = tempfile::tempdir().unwrap();
+    let before = e.server.hu.lock().unwrap().snapshot();
+    let (code, console) = run_e1(
+        &e,
+        usb.path(),
+        "test-password\nEXPERIMENT\nSCRATCH-WRITES\nno\ne2e\nyes\n\n",
+    );
+    assert_eq!(code, 6, "{console}");
+    assert!(console.contains("nothing was written"), "{console}");
+    let rx = e.server.received.lock().unwrap().clone();
+    assert!(!rx.is_empty(), "inspect ran");
+    assert!(!rx.iter().any(|c| is_write(c)), "{rx:?}");
+    assert_eq!(e.server.hu.lock().unwrap().snapshot(), before);
+    // The stick got three 1 MiB test files.
+    for f in ["f1", "f2", "f3"] {
+        let m = std::fs::metadata(usb.path().join("nbt-e1").join(f)).unwrap();
+        assert_eq!(m.len(), 1024 * 1024);
+    }
+}
+
+#[test]
+fn e1_without_the_exact_consent_sends_nothing() {
+    let e = env(ServerOptions::default());
+    let usb = tempfile::tempdir().unwrap();
+    let (code, _) = run_e1(
+        &e,
+        usb.path(),
+        "test-password\nEXPERIMENT\nscratch-writes\n",
+    );
+    assert_eq!(code, 1);
+    assert!(e.server.received.lock().unwrap().is_empty());
+}
+
+#[test]
+fn e1_stick_files_are_reused_and_foreign_files_refused() {
+    let e = env(ServerOptions::default());
+    let usb = tempfile::tempdir().unwrap();
+    let _ = run_e1(&e, usb.path(), "test-password\nEXPERIMENT\nno\n");
+    let first = std::fs::read(usb.path().join("nbt-e1/f1")).unwrap();
+    let _ = run_e1(&e, usb.path(), "test-password\nEXPERIMENT\nno\n");
+    assert_eq!(
+        std::fs::read(usb.path().join("nbt-e1/f1")).unwrap(),
+        first,
+        "reused, not overwritten"
+    );
+    let other = tempfile::tempdir().unwrap();
+    std::fs::create_dir(other.path().join("nbt-e1")).unwrap();
+    std::fs::write(other.path().join("nbt-e1/f1"), b"user file").unwrap();
+    let (code, console) = run_e1(&e, other.path(), "test-password\n");
+    assert_eq!(code, 1, "{console}");
+    assert_eq!(
+        std::fs::read(other.path().join("nbt-e1/f1")).unwrap(),
+        b"user file"
+    );
+}
+
+#[test]
+fn e1_print_commands_lists_the_mutations() {
+    let o = Command::new(env!("CARGO_BIN_EXE_nbt-aad-manager"))
+        .args(["experiment-e1", "--print-commands"])
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    let s = String::from_utf8(o.stdout).unwrap();
+    assert!(s.contains("mkdir /opt/aa/nbt-aad-e1-scratch"));
+    assert!(s.contains("SCRATCH-WRITES"));
+}

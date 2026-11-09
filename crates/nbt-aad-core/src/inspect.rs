@@ -509,4 +509,4 @@ remote commands executed: {} (read-backs: {})
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

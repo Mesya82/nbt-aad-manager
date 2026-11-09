@@ -39,13 +39,15 @@ mod regex_lite_host {
     }
 }
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Which read-only operation runs after login.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Probe,
     Inspect,
+    /// Inspect + approved hardware experiment E1 (scratch-only writes).
+    ExperimentE1,
 }
 
 impl Mode {
@@ -53,29 +55,31 @@ impl Mode {
         match self {
             Mode::Probe => "PROBE",
             Mode::Inspect => "INSPECT",
+            Mode::ExperimentE1 => "EXPERIMENT",
         }
     }
     fn dir_prefix(self) -> &'static str {
         match self {
             Mode::Probe => "nbt-probe",
             Mode::Inspect => "nbt-inspect",
+            Mode::ExperimentE1 => "nbt-e1",
         }
     }
 }
 
 /// Prints to stderr and keeps a redacted copy in `report/console.log`.
-struct Console {
+pub(crate) struct Console {
     log: Option<fs::File>,
 }
 
 impl Console {
-    fn say(&mut self, text: &str) {
+    pub(crate) fn say(&mut self, text: &str) {
         eprintln!("{text}");
         if let Some(f) = &mut self.log {
             let _ = writeln!(f, "{}", redact(text));
         }
     }
-    fn ask(&mut self, prompt: &str) -> String {
+    pub(crate) fn ask(&mut self, prompt: &str) -> String {
         eprint!("{prompt}");
         let _ = std::io::stderr().flush();
         let answer = read_line();
@@ -98,20 +102,22 @@ fn read_secret_line() -> Zeroizing<String> {
     s
 }
 
-fn read_line() -> String {
+pub(crate) fn read_line() -> String {
     let mut s = String::new();
     let _ = std::io::stdin().lock().read_line(&mut s);
     s.trim_end_matches(['\r', '\n']).to_owned()
 }
 
-struct Run {
-    out: PathBuf,
-    report: PathBuf,
-    console: Console,
+pub(crate) struct Run {
+    pub(crate) out: PathBuf,
+    pub(crate) report: PathBuf,
+    pub(crate) console: Console,
+    /// Shown in the final message (probe/inspect: nothing written).
+    pub(crate) writes_note: &'static str,
 }
 
 impl Run {
-    fn finish(mut self, code: u8) -> ExitCode {
+    pub(crate) fn finish(mut self, code: u8) -> ExitCode {
         if let Err(e) = package(&self.out) {
             self.console
                 .say(&format!("WARNING: could not create report.tgz: {e}"));
@@ -124,7 +130,8 @@ impl Run {
             format!("Stopped early (code {code}); the partial report is still useful.")
         };
         self.console.say(&format!(
-            "\n{head} Nothing was written on the head unit.\n  Report for Claude: {}   (also {})\n  Raw copies:        {}  (keep local; contains upstream binaries and unredacted state)\nGlance through report/ before posting it anywhere public.",
+            "\n{head} {}\n  Report for Claude: {}   (also {})\n  Raw copies:        {}  (keep local; contains upstream binaries and unredacted state)\nGlance through report/ before posting it anywhere public.",
+            self.writes_note,
             self.report.display(),
             self.out.join("report.tgz").display(),
             self.out.join("private").display()
@@ -132,7 +139,7 @@ impl Run {
         ExitCode::from(code)
     }
 
-    fn write(&self, name: &str, content: &str) {
+    pub(crate) fn write(&self, name: &str, content: &str) {
         let _ = fs::write(self.report.join(name), content);
     }
 }
@@ -209,6 +216,14 @@ fn print_commands(node: &NodePath) -> ExitCode {
 }
 
 pub fn main(args: ProbeArgs, mode: Mode) -> ExitCode {
+    main_with(args, mode, None)
+}
+
+pub(crate) fn main_with(
+    args: ProbeArgs,
+    mode: Mode,
+    e1: Option<crate::experiment_cmd::E1Prep>,
+) -> ExitCode {
     let node = match NodePath::new(&args.hu_node) {
         Ok(n) => n,
         Err(e) => {
@@ -216,7 +231,8 @@ pub fn main(args: ProbeArgs, mode: Mode) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    if mode == Mode::Inspect && node.as_str() != PILOT_G31.daemon_node {
+    if matches!(mode, Mode::Inspect | Mode::ExperimentE1) && node.as_str() != PILOT_G31.daemon_node
+    {
         eprintln!(
             "ERROR: --hu-node must be {} for profile {}",
             PILOT_G31.daemon_node, PILOT_G31.id
@@ -227,9 +243,14 @@ pub fn main(args: ProbeArgs, mode: Mode) -> ExitCode {
         return match mode {
             Mode::Probe => print_commands(&node),
             Mode::Inspect => print_inspect_commands(),
+            Mode::ExperimentE1 => {
+                let c = print_inspect_commands();
+                crate::experiment_cmd::print_commands();
+                c
+            }
         };
     }
-    if mode == Mode::Inspect
+    if matches!(mode, Mode::Inspect | Mode::ExperimentE1)
         && let Err(e) = inspect::plan(&PILOT_G31)
     {
         eprintln!("internal error, not connecting: {e}");
@@ -263,7 +284,7 @@ pub fn main(args: ProbeArgs, mode: Mode) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    rt.block_on(run(args, host, node, mode))
+    rt.block_on(run(args, host, node, mode, e1))
 }
 
 static STAMP_FMT: LazyLock<Vec<time::format_description::BorrowedFormatItem<'static>>> =
@@ -296,7 +317,7 @@ fn setup_out(base: &Path, prefix: &str) -> std::io::Result<(PathBuf, PathBuf, Pa
     Ok((out, report, private))
 }
 
-async fn tcp(addr: &std::net::SocketAddr) -> Result<TcpStream, String> {
+pub(crate) async fn tcp(addr: &std::net::SocketAddr) -> Result<TcpStream, String> {
     match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
         Ok(Ok(s)) => {
             let _ = s.set_nodelay(true);
@@ -307,7 +328,13 @@ async fn tcp(addr: &std::net::SocketAddr) -> Result<TcpStream, String> {
     }
 }
 
-async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitCode {
+async fn run(
+    args: ProbeArgs,
+    host: String,
+    node: NodePath,
+    mode: Mode,
+    e1: Option<crate::experiment_cmd::E1Prep>,
+) -> ExitCode {
     // --password-stdin: the password is the FIRST stdin line, read before
     // any prompt, so it can never be consumed as a prompt answer.
     let stdin_password = args.password_stdin.then(read_secret_line);
@@ -327,6 +354,11 @@ async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitC
         out: out.clone(),
         report: report.clone(),
         console: Console { log },
+        writes_note: if mode == Mode::ExperimentE1 {
+            "E1 wrote only to /opt/aa/nbt-aad-e1-scratch (and remounted /fs/sda0) as approved."
+        } else {
+            "Nothing was written on the head unit."
+        },
     };
     let profile = if args.allow_legacy_weak {
         AlgorithmProfile::legacy_weak()
@@ -338,8 +370,16 @@ async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitC
         ..SshOptions::default()
     };
 
+    if let Some(e1) = &e1 {
+        run.console.say(&crate::experiment_cmd::banner_text(e1));
+    }
     run.console.say(&format!(
-        "\nNBT-AAD Manager READ-ONLY {} (probe plan v{PROBE_VERSION}; {} {})\nTarget: {}@{host}:{}   HU node: {}\nOutput: {}\n\nPreconditions (you confirm):\n  - vehicle is parked; you control power; nobody is driving\n  - SSH on the head unit is ALREADY enabled (this tool does not enable it)\n  - you have NOT remounted anything read-write in another session\nThis tool makes NO writes on the head unit. Review commands with --print-commands.",
+        "\nNBT-AAD Manager {} {} (probe plan v{PROBE_VERSION}; {} {})\nTarget: {}@{host}:{}   HU node: {}\nOutput: {}\n\nPreconditions (you confirm):\n  - vehicle is parked; you control power; nobody is driving\n  - SSH on the head unit is ALREADY enabled (this tool does not enable it)\n  - you have NOT remounted anything read-write in another session\nProbe and inspect make NO writes on the head unit. Review commands with --print-commands.",
+        if mode == Mode::ExperimentE1 {
+            "WRITE-LIMITED"
+        } else {
+            "READ-ONLY"
+        },
         mode.word().to_lowercase(),
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
@@ -362,6 +402,25 @@ async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitC
         run.console.say("cancelled");
         return run.finish(1);
     }
+    let consent = match &e1 {
+        Some(_) => {
+            let typed = run.console.ask(&format!(
+                "Type {} to allow E1's writes (scratch directory and remount only): ",
+                nbt_aad_core::experiment::CONSENT_WORD
+            ));
+            match nbt_aad_core::guard::Consent::from_typed(
+                &typed,
+                nbt_aad_core::experiment::CONSENT_WORD,
+            ) {
+                Some(c) => Some(c),
+                None => {
+                    run.console.say("no consent; nothing was sent");
+                    return run.finish(1);
+                }
+            }
+        }
+        None => None,
+    };
     let aa = run
         .console
         .ask("Is Android Auto currently running on the head unit? (yes/no/unknown): ");
@@ -518,12 +577,19 @@ async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitC
     };
     run.console.say("==> Logging in");
     let transport = match tcp(&addr).await {
-        Ok(s) => ssh::connect(s, &opts, key, &args.user, &password)
+        Ok(s) => ssh::connect(s, &opts, key.clone(), &args.user, &password)
             .await
             .map_err(|e| e.to_string()),
         Err(e) => Err(e),
     };
-    drop(password);
+    // E1 reconnects after the operator's restart: keep the password in
+    // zeroizing memory until then. Every other mode drops it now.
+    let password = if mode == Mode::ExperimentE1 {
+        Some(password)
+    } else {
+        drop(password);
+        None
+    };
     let transport = match transport {
         Ok(t) => t,
         Err(e) => {
@@ -554,6 +620,27 @@ async fn run(args: ProbeArgs, host: String, node: NodePath, mode: Mode) -> ExitC
         },
         ..ProbeConfig::default()
     };
+    if let (Some(e1), Some(consent), Some(password)) = (e1, consent, password) {
+        return crate::experiment_cmd::run(crate::experiment_cmd::Session {
+            run,
+            transport,
+            sink,
+            addr,
+            opts,
+            key,
+            user: args.user.clone(),
+            password,
+            banner,
+            cfg: InspectConfig {
+                text_limits: cfg.text_limits,
+                readback_limits: cfg.readback_limits,
+                ..InspectConfig::default()
+            },
+            e1,
+            consent,
+        })
+        .await;
+    }
     let mut rec = Recorder::new(transport, sink);
     if mode == Mode::Inspect {
         run.console.say("==> Inspecting (read-only)");

@@ -109,6 +109,80 @@ impl FakeHu {
         }
     }
 
+    fn is_ro(&self, p: &str) -> bool {
+        self.read_only.iter().any(|r| p.starts_with(r.as_str()))
+    }
+
+    fn parent_is_dir(&self, p: &str) -> bool {
+        let parent = match p.rfind('/') {
+            Some(0) => "/",
+            Some(i) => &p[..i],
+            None => return false,
+        };
+        matches!(self.fs.get(parent), Some(Node::Dir))
+    }
+
+    fn m_mkdir(&mut self, p: &str, err: &mut String) -> u32 {
+        if self.is_ro(p) {
+            err.push_str(&format!("mkdir: {p}: Read-only file system\n"));
+            return 1;
+        }
+        if self.fs.contains_key(p) || !self.parent_is_dir(p) {
+            err.push_str(&format!("mkdir: {p}: cannot create\n"));
+            return 1;
+        }
+        self.fs.insert(p.to_owned(), Node::Dir);
+        0
+    }
+
+    fn m_cp(&mut self, a: &str, b: &str, err: &mut String) -> u32 {
+        if self.is_ro(b) {
+            err.push_str(&format!("cp: {b}: Read-only file system\n"));
+            return 1;
+        }
+        let Some(Node::File(data)) = self.fs.get(a).cloned() else {
+            err.push_str(&format!("cp: {a}: No such file or directory\n"));
+            return 1;
+        };
+        if !self.parent_is_dir(b) || matches!(self.fs.get(b), Some(Node::Dir)) {
+            err.push_str(&format!("cp: {b}: cannot create\n"));
+            return 1;
+        }
+        self.fs.insert(b.to_owned(), Node::File(data));
+        0
+    }
+
+    fn m_mv(&mut self, a: &str, b: &str, err: &mut String) -> u32 {
+        if self.is_ro(a) || self.is_ro(b) {
+            err.push_str("mv: Read-only file system\n");
+            return 1;
+        }
+        if !self.fs.contains_key(a) || self.fs.contains_key(b) || !self.parent_is_dir(b) {
+            err.push_str(&format!("mv: cannot move {a} to {b}\n"));
+            return 1;
+        }
+        let prefix = format!("{a}/");
+        let keys: Vec<String> = self
+            .fs
+            .keys()
+            .filter(|k| *k == a || k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for k in keys {
+            if let Some(n) = self.fs.remove(&k) {
+                self.fs.insert(format!("{b}{}", &k[a.len()..]), n);
+            }
+        }
+        0
+    }
+
+    /// A head-unit restart: the remount is lost (read-only again).
+    pub fn restart(&mut self) {
+        if !self.read_only.iter().any(|r| r == "/opt") {
+            self.read_only.push("/opt".into());
+        }
+    }
+
     pub fn snapshot(&self) -> Vec<(String, Vec<u8>)> {
         self.fs
             .iter()
@@ -167,7 +241,7 @@ impl FakeHu {
         0
     }
 
-    fn run_simple(&self, s: &str, out: &mut Vec<u8>, err: &mut String) -> u32 {
+    fn run_simple(&mut self, s: &str, out: &mut Vec<u8>, err: &mut String) -> u32 {
         let s = s.trim();
         let words: Vec<&str> = s.split_whitespace().collect();
         let mut o = String::new();
@@ -240,6 +314,33 @@ impl FakeHu {
                 o.push_str(&format!("usage: {t}\n"));
                 0
             }
+            ["mount", "-o", "remount", mode, "/net/hu-omap/fs/sda0"] => match *mode {
+                "rw" => {
+                    self.read_only.retain(|r| r != "/opt");
+                    0
+                }
+                "ro" => {
+                    if !self.read_only.iter().any(|r| r == "/opt") {
+                        self.read_only.push("/opt".into());
+                    }
+                    0
+                }
+                _ => 1,
+            },
+            ["mkdir", p] => self.m_mkdir(p, err),
+            ["cp", a, b] => self.m_cp(a, b, err),
+            ["chmod", "755", p] => {
+                if self.is_ro(p) {
+                    err.push_str(&format!("chmod: {p}: Read-only file system\n"));
+                    1
+                } else if self.fs.contains_key(*p) {
+                    0
+                } else {
+                    err.push_str(&format!("chmod: {p}: No such file or directory\n"));
+                    1
+                }
+            }
+            ["mv", a, b] => self.m_mv(a, b, err),
             [prog, ..] => {
                 err.push_str(&format!("sh: {prog}: not found\n"));
                 127
@@ -321,6 +422,45 @@ impl HeadUnitTransport for FakeHu {
             stdout,
             stderr,
             stdout_dropped: dropped,
+            stderr_dropped: 0,
+            outcome: ExitOutcome::Code(rc),
+            started,
+            duration: Duration::from_millis(1),
+        })
+    }
+
+    async fn exec_mutating(
+        &mut self,
+        command: &crate::guard::MutatingCommand,
+        _consent: &crate::guard::Consent,
+        limits: ExecLimits,
+    ) -> Result<ExecResult, TransportError> {
+        if self.lose_after.is_some_and(|n| self.seen.len() >= n) {
+            return Err(TransportError::ConnectionLost("fake link down".into()));
+        }
+        self.seen.push(command.as_str().to_owned());
+        let started = SystemTime::now();
+        if self
+            .hang_on
+            .as_deref()
+            .is_some_and(|h| command.as_str().contains(h))
+        {
+            return Ok(ExecResult {
+                stdout: vec![],
+                stderr: vec![],
+                stdout_dropped: 0,
+                stderr_dropped: 0,
+                outcome: ExitOutcome::TimedOut,
+                started,
+                duration: limits.timeout,
+            });
+        }
+        let (mut stdout, stderr, rc) = self.run(command.as_str());
+        stdout.truncate(limits.max_output);
+        Ok(ExecResult {
+            stdout,
+            stderr,
+            stdout_dropped: 0,
             stderr_dropped: 0,
             outcome: ExitOutcome::Code(rc),
             started,

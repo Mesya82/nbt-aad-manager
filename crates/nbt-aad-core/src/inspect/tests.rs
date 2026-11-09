@@ -87,7 +87,7 @@ impl HeadUnitTransport for Replay {
     }
 }
 
-const BANNER: &str = "SSH-2.0-OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6";
+pub(crate) const BANNER: &str = "SSH-2.0-OpenSSH_5.2 QNX_Secure_Shell-20090621-hpn13v6";
 
 #[test]
 fn every_inspect_command_ran_verbatim_on_the_pilot_car() {
@@ -151,7 +151,7 @@ fn plan_is_a_subset_of_the_probe_plan_and_read_only() {
 const FAKE_UNAME: &str = "QNX hu-omap 6.5.0 fake armle";
 const PD: &str = "/opt/hmi/ID5/data/ro/Plugins/NbtAad";
 
-fn fake_profile() -> HeadUnitProfile {
+pub(crate) fn fake_profile() -> HeadUnitProfile {
     let obs = Evidence::Observed(&["tests/fixtures/pilot-g31"]);
     HeadUnitProfile {
         id: "fake",
@@ -195,7 +195,7 @@ fn fake_profile() -> HeadUnitProfile {
         remount: Fact {
             value: Remount {
                 run_on: RunOn::Login,
-                command: "x",
+                command: "mount -o remount rw /net/hu-omap/fs/sda0",
                 verify_writable: "/opt/aa",
                 persists_until_restart: Fact {
                     value: false,
@@ -216,7 +216,7 @@ fn file(data: &[u8], name: &'static str) -> FileDigest {
     }
 }
 
-fn content(tag: &str, n: &str) -> Vec<u8> {
+pub(crate) fn content(tag: &str, n: &str) -> Vec<u8> {
     format!("{tag} {n} payload\n").into_bytes()
 }
 
@@ -232,14 +232,14 @@ fn pin(tag: &'static str) -> KnownRelease {
     }
 }
 
-fn table() -> &'static [KnownRelease] {
+pub(crate) fn table() -> &'static [KnownRelease] {
     static T: std::sync::LazyLock<Vec<KnownRelease>> =
         std::sync::LazyLock::new(|| vec![pin("old"), pin("new")]);
     T.as_slice()
 }
 
 /// A fake unit in the "after update" state: `new` active, `old` as backup.
-fn updated_unit() -> FakeHu {
+pub(crate) fn updated_unit() -> FakeHu {
     let mut hu = FakeHu::new();
     hu.fs.retain(|k, _| {
         !(k.starts_with(PD) && k != PD)

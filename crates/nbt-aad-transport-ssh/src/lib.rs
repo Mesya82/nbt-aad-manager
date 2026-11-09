@@ -8,7 +8,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use nbt_aad_core::guard::GuardedCommand;
+use nbt_aad_core::guard::{Consent, GuardedCommand, MutatingCommand};
 use nbt_aad_core::kexinit::{self, AlgorithmProfile, Parse, ServerAlgorithms};
 use nbt_aad_core::transport::{
     ExecLimits, ExecResult, ExitOutcome, HeadUnitTransport, TransportError,
@@ -393,6 +393,27 @@ impl HeadUnitTransport for SshTransport {
         command: &GuardedCommand,
         limits: ExecLimits,
     ) -> Result<ExecResult, TransportError> {
+        self.exec_str(command.as_str(), limits).await
+    }
+
+    async fn exec_mutating(
+        &mut self,
+        command: &MutatingCommand,
+        _consent: &Consent,
+        limits: ExecLimits,
+    ) -> Result<ExecResult, TransportError> {
+        self.exec_str(command.as_str(), limits).await
+    }
+}
+
+impl SshTransport {
+    /// One command on a fresh channel. Only reachable through the typed
+    /// trait methods above (guarded read-only or consented mutation).
+    async fn exec_str(
+        &mut self,
+        command: &str,
+        limits: ExecLimits,
+    ) -> Result<ExecResult, TransportError> {
         if self.handle.is_closed() {
             return Err(TransportError::ConnectionLost("session closed".into()));
         }
@@ -418,7 +439,7 @@ impl HeadUnitTransport for SshTransport {
                     ));
                 }
             };
-        if let Err(e) = channel.exec(true, command.as_str()).await {
+        if let Err(e) = channel.exec(true, command).await {
             let _ = channel.close().await;
             return Err(lost_or_rejected(&self.handle, e));
         }

@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use sha2::{Digest, Sha256};
 
-use crate::guard::GuardedCommand;
+use crate::guard::{Consent, GuardedCommand, MutatingCommand};
 
 /// How a remote command ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,6 +86,19 @@ pub trait HeadUnitTransport {
         command: &GuardedCommand,
         limits: ExecLimits,
     ) -> Result<ExecResult, TransportError>;
+
+    /// Execute a mutation. Default: refused (transports are read-only unless
+    /// they explicitly opt in).
+    async fn exec_mutating(
+        &mut self,
+        command: &MutatingCommand,
+        _consent: &Consent,
+        _limits: ExecLimits,
+    ) -> Result<ExecResult, TransportError> {
+        Err(TransportError::Rejected(format!(
+            "this transport does not execute mutations: {command}"
+        )))
+    }
 }
 
 /// What a transcript sink keeps of stdout.
@@ -177,6 +190,12 @@ impl<T: HeadUnitTransport, S: TranscriptSink> Recorder<T, S> {
         }
     }
 
+    /// Continue a transcript on a new transport (e.g. after a reconnect):
+    /// sequence numbers continue after `seq`, so no record is overwritten.
+    pub fn resume(inner: T, sink: S, seq: u32) -> Self {
+        Self { inner, sink, seq }
+    }
+
     pub fn sink_mut(&mut self) -> &mut S {
         &mut self.sink
     }
@@ -199,6 +218,47 @@ impl<T: HeadUnitTransport, S: TranscriptSink> Recorder<T, S> {
         self.seq += 1;
         let started = SystemTime::now();
         let result = self.inner.exec(command, limits).await;
+        self.record(
+            id,
+            policy,
+            command.context().label(),
+            command.as_str(),
+            started,
+            result,
+        )
+    }
+
+    /// Execute and record a mutation (same transcript format; the record's
+    /// id should name the operation, e.g. `e1-mkdir-scratch`).
+    pub async fn exec_mutating(
+        &mut self,
+        id: &str,
+        command: &MutatingCommand,
+        consent: &Consent,
+        limits: ExecLimits,
+    ) -> Result<ExecResult, RecordedError> {
+        self.seq += 1;
+        let started = SystemTime::now();
+        let result = self.inner.exec_mutating(command, consent, limits).await;
+        self.record(
+            id,
+            Policy::Text,
+            command.context().label(),
+            command.as_str(),
+            started,
+            result,
+        )
+    }
+
+    fn record(
+        &mut self,
+        id: &str,
+        policy: Policy,
+        context: &'static str,
+        command: &str,
+        started: SystemTime,
+        result: Result<ExecResult, TransportError>,
+    ) -> Result<ExecResult, RecordedError> {
         let (stdout, stderr, outcome, terr, started, duration, sd, ed) = match &result {
             Ok(r) => (
                 r.stdout.as_slice(),
@@ -225,8 +285,8 @@ impl<T: HeadUnitTransport, S: TranscriptSink> Recorder<T, S> {
             seq: self.seq,
             id: id.to_owned(),
             policy,
-            context: command.context().label(),
-            command: command.as_str().to_owned(),
+            context,
+            command: command.to_owned(),
             outcome,
             transport_error: terr,
             started,

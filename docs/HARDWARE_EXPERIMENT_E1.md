@@ -1,8 +1,43 @@
-# Hardware experiment E1: remount, scratch writes, durability (PROPOSAL; NOT YET RUN)
+# Hardware experiment E1: remount, scratch writes, durability (APPROVED; IMPLEMENTED; NOT YET RUN)
 
 Purpose: answer `docs/WRITE_PATH_DESIGN.md` section 6, items 1–5, on the pilot car. Every write targets a **scratch directory** that no software on the head unit uses. The real daemon, plugin, env, `/var/opt/aa` and upstream backups are never touched.
 
-Status: proposal. It needs the operator's explicit approval before it runs. There's no tool command for it yet. When approved, it should be implemented as a guarded, transcript-recorded `experiment e1` command, so every execution is logged as for `probe` and `inspect`.
+Status: approved by the operator on 2026-11-09 and implemented as `nbt-aad-manager experiment-e1`. It hasn't run on the car yet.
+
+## How to run it (one command, with inspect first)
+
+1. Plug the USB stick into the laptop and note its drive letter (e.g. `E:`).
+2. Run `.\nbt-aad-manager.exe experiment-e1 --host 169.254.199.99 --usb E:\`.
+   - The tool writes `nbt-e1\f1..f3` (random, 1 MiB each) onto the stick before it connects. A set from an earlier attempt is reused, and nothing is overwritten.
+3. Follow the prompts:
+   1. Type `EXPERIMENT`, then `SCRATCH-WRITES`. That is the consent for the scratch writes and the remounts.
+   2. Answer the usual probe questions and accept the host key.
+   3. Move the stick to the car and press Enter.
+   4. The tool runs `inspect`. If the unit or the install doesn't verify, it **stops before any write** (exit 6).
+   5. E1a–E1c run, then Force Stop when asked (E1d, 2 minutes of observation), then E1e.
+   6. Restart the head unit when asked (hold power about 30 s), wait until iDrive is back plus about one more minute, and press Enter. The tool reconnects with the same pinned host key and runs phase 2, including a second `inspect`.
+4. Results: `report/e1-results.txt`, `inspect-before.txt` and `inspect-after.txt`, plus the full transcript of both sessions in `report/exec/`. Copy `report.tgz` as usual.
+
+Exit codes:
+- 0: done.
+- 1: cancelled or no consent.
+- 3: connection lost. If it happened after a remount, restart the head unit.
+- 4: transcript failure.
+- 5: internal error.
+- 6: preconditions not met; nothing was written.
+
+## Safeguards in the implementation
+
+- **Separate write type.** Writes use a separate `MutatingCommand` type, built only from the fixed E1 set, and the transport sends it only with the typed consent token.
+- **Recorded.** Every write is recorded in the same transcript as the reads.
+- **Precondition order.** It stops before any write unless all of these hold:
+  - `inspect` matches the profile and verifies the install;
+  - nothing named like the scratch folder exists in `/opt/aa`;
+  - exactly one stick holds the three files with the expected digests.
+- **Remount check.** If the remount doesn't make `/opt/aa` writable, no scratch write is attempted.
+- **Stops on failure.** Any write with a non-zero exit stops the run at that step.
+- **Reconnect identity.** The reconnect after the restart accepts only the host key pinned in session 1.
+- **Tested** against the stateful fake head unit for the full run across a restart, every precondition, a failed write, a read-only transport, a lost connection and consent misuse. A mutation check of the safety gates killed every mutant.
 
 ## Preconditions
 

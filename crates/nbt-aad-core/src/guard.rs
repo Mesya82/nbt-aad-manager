@@ -123,6 +123,56 @@ impl fmt::Display for GuardedCommand {
     }
 }
 
+/// A head-unit **mutation** from a closed, reviewed set (currently only the
+/// scratch-only hardware experiment E1). Deliberately a different type from
+/// [`GuardedCommand`]: it can only be built inside this crate from typed
+/// operations, and transports accept it only together with a [`Consent`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MutatingCommand {
+    context: Context,
+    rendered: String,
+}
+
+impl MutatingCommand {
+    pub(crate) fn new(context: Context, body: &str) -> Self {
+        let rendered = match &context {
+            Context::Login => body.to_owned(),
+            Context::Node(node) => format!("on -f {} {}", node.as_str(), body),
+        };
+        Self { context, rendered }
+    }
+    pub fn context(&self) -> &Context {
+        &self.context
+    }
+    /// The exact text sent to the remote shell.
+    pub fn as_str(&self) -> &str {
+        &self.rendered
+    }
+}
+
+impl fmt::Display for MutatingCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.rendered)
+    }
+}
+
+/// Proof that the operator explicitly typed the confirmation word for a
+/// mutating operation. Only obtainable through [`Consent::from_typed`].
+#[derive(Debug)]
+pub struct Consent {
+    what: &'static str,
+}
+
+impl Consent {
+    /// `typed` must equal `expected` exactly (case-sensitive, trimmed).
+    pub fn from_typed(typed: &str, expected: &'static str) -> Option<Self> {
+        (typed.trim() == expected && !expected.is_empty()).then_some(Self { what: expected })
+    }
+    pub fn what(&self) -> &'static str {
+        self.what
+    }
+}
+
 /// A file name component: `^[A-Za-z0-9._-]+$`, not `.` or `..`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SafeName(String);
