@@ -17,6 +17,7 @@
 # USAGE
 #   bash tools/probe/nbt-probe.sh --host 169.254.199.99            # direct ENET
 #   bash tools/probe/nbt-probe.sh --host 127.0.0.1 --port 6969     # via proxy
+#   bash tools/probe/nbt-probe.sh --host 169.254.199.99 --allow-ssh-dss  # legacy DSA-only HU (OpenSSH < 10)
 #   bash tools/probe/nbt-probe.sh --print-commands
 #   bash tools/probe/nbt-probe.sh --self-test
 #
@@ -33,6 +34,7 @@ HU_NODE=/net/hu-omap/
 OUT_BASE="."
 CMD_TIMEOUT="${NBT_PROBE_CMD_TIMEOUT:-60}"
 MAX_READBACK_BYTES=$((8 * 1024 * 1024))
+ALLOW_DSS=0
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 note() { printf '==> %s\n' "$*" >&2; }
@@ -254,7 +256,7 @@ setup_ssh_opts() {
     -F /dev/null -p "$PORT"
     -o "UserKnownHostsFile=$KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null
     -o StrictHostKeyChecking=yes
-    -o HostKeyAlgorithms=+ssh-rsa
+    -o "HostKeyAlgorithms=+ssh-rsa$( ((ALLOW_DSS)) && printf ',ssh-dss')"
     -o MACs=+hmac-sha1
     -o PubkeyAuthentication=no -o IdentitiesOnly=yes -o IdentityFile=none -o IdentityAgent=none
     -o PreferredAuthentications=keyboard-interactive,password -o GSSAPIAuthentication=no
@@ -427,6 +429,7 @@ while (($#)); do
     --user) need $# "$1"; USER_NAME="$2"; shift 2 ;;
     --hu-node) need $# "$1"; HU_NODE="$2"; shift 2 ;;
     --out) need $# "$1"; OUT_BASE="$2"; shift 2 ;;
+    --allow-ssh-dss) ALLOW_DSS=1; shift ;;
     --print-commands) MODE=print; shift ;;
     --self-test) MODE=selftest; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -449,6 +452,13 @@ for t in ssh ssh-keyscan ssh-keygen timeout sha256sum strings awk sed grep tar; 
   command -v "$t" >/dev/null || die "missing host tool: $t"
 done
 self_test >/dev/null || die "internal self-test failed; not connecting"
+if (( ALLOW_DSS )); then
+  ssh -F /dev/null -Q key 2>/dev/null | grep -qx ssh-dss || die "--allow-ssh-dss: this OpenSSH ($(ssh -V 2>&1)) has no DSA support (removed in OpenSSH 10). Use Ubuntu 22.04 under WSL1 or another OpenSSH 8.x/9.x client."
+fi
+WSL_VER=""
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  if grep -Eqi 'WSL2|microsoft-standard' /proc/version; then WSL_VER=2; else WSL_VER=1; fi
+fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="$OUT_BASE/nbt-probe-$STAMP"
@@ -491,6 +501,19 @@ Preconditions (you confirm):
   - you have NOT remounted anything read-write in another session
 This script makes NO writes on the head unit. Review commands with --print-commands.
 EOF
+if (( ALLOW_DSS )); then
+  cat >&2 <<EOF
+WARNING: --allow-ssh-dss enables the legacy DSA host-key algorithm (1024-bit, deprecated).
+Use it only on a direct cable to your own head unit, and only if ssh-kexinit.txt shows no better option.
+EOF
+fi
+if [[ "$WSL_VER" == 2 && "$HOST" == 169.254.* ]]; then
+  cat >&2 <<EOF
+WARNING: running under WSL2. WSL2 normally cannot reach link-local (169.254.x.x) addresses on the
+laptop's Ethernet port. Prefer a WSL1 distribution (see tools/probe/README.md). The probe will
+simply fail to connect if the route is missing; nothing is written either way.
+EOF
+fi
 read -r -p "Type PROBE to continue: " ans
 [[ "$ans" == PROBE ]] || die "cancelled"
 read -r -p "Is Android Auto currently running on the head unit? (yes/no/unknown): " aa_state
@@ -506,7 +529,8 @@ read -r -p "Optional free-text note for this run (e.g. 'after fresh boot'): " ru
   echo "host_uname=$(uname -a)"
   echo "host_ssh=$(ssh -V 2>&1)"
   echo "host_bash=$BASH_VERSION"
-  grep -qi microsoft /proc/version 2>/dev/null && echo "host_wsl=yes"
+  echo "host_wsl=${WSL_VER:-no}"
+  echo "allow_ssh_dss=$ALLOW_DSS"
 } >"$REPORT/meta.txt"
 
 # 1. Unauthenticated algorithm discovery (KEXINIT) — BatchMode, no password.
@@ -523,10 +547,12 @@ cat "$REPORT/ssh-kexinit.txt" >&2
 
 # 2. Host key fingerprint (TOFU with explicit user confirmation).
 note "Fetching host keys"
-timeout 30 ssh-keyscan -T 10 -p "$PORT" "$HOST" 2>"$REPORT/ssh-keyscan.stderr" >"$TMPD/keys"
+KEYTYPES=rsa,ecdsa,ed25519; (( ALLOW_DSS )) && KEYTYPES+=,dsa
+timeout 30 ssh-keyscan -T 10 -t "$KEYTYPES" -p "$PORT" "$HOST" 2>"$REPORT/ssh-keyscan.stderr" >"$TMPD/keys"
 if [[ ! -s "$TMPD/keys" ]]; then
-  echo "ssh-keyscan returned no keys this OpenSSH can use (a DSA-only server is unusable with OpenSSH >= 10)." >&2
-  echo "Evidence saved in $REPORT/ssh-kexinit.txt. Stopping before login." >&2
+  echo "ssh-keyscan returned no usable host key." >&2
+  echo "If $REPORT/ssh-kexinit.txt lists only ssh-dss under host key algorithms, rerun with --allow-ssh-dss" >&2
+  echo "(needs OpenSSH < 10, e.g. Ubuntu 22.04 in WSL1). Evidence saved. Stopping before login." >&2
   exit 2
 fi
 ssh-keygen -lf "$TMPD/keys" | tee "$REPORT/ssh-hostkey-fingerprints.txt" >&2
@@ -542,7 +568,7 @@ if ! ssh "${SSH_OPTS[@]}" -o ControlMaster=yes -o ControlPersist=3600 -o LogLeve
   die "SSH login failed; see $REPORT/ssh-login.stderr and ssh-kexinit.txt"
 fi
 for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -S "$CTL_SOCK" ]] && break; sleep 0.5; done
-ssh -F /dev/null -o "ControlPath=$CTL_SOCK" -O check "$USER_NAME@$HOST" 2>>"$REPORT/ssh-login.stderr" || die "SSH multiplexing unavailable"
+ssh -F /dev/null -o "ControlPath=$CTL_SOCK" -O check "$USER_NAME@$HOST" 2>>"$REPORT/ssh-login.stderr" || die "SSH multiplexing (ControlMaster) unavailable on this host. Under Windows use WSL (Linux file system, not /mnt/c); Git Bash and Windows OpenSSH are not supported"
 
 # 4. Static probes.
 note "Running static probes"

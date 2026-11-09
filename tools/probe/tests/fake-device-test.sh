@@ -84,6 +84,7 @@ ssh-keygen -q -t rsa -b 2048 -N '' -f "$W/hostkey" >/dev/null
 ssh-keygen -q -t rsa -b 2048 -N '' -f "$W/otherkey" >/dev/null
 cat >"$BIN/ssh-keyscan" <<EOF
 #!/bin/sh
+[ -n "\$FAKE_KEYSCAN_EMPTY" ] && exit 0
 echo "[127.0.0.1]:2222 \$(cut -d' ' -f1,2 "$W/hostkey.pub")"
 EOF
 cat >"$BIN/ssh" <<EOF
@@ -96,6 +97,8 @@ while (( i < ${#args[@]} )); do
   a="${args[i]}"
   case "$a" in
     -V) echo "OpenSSH_fake" >&2; exit 0 ;;
+    -Q) printf 'ssh-rsa\nssh-ed25519\n%s' "${FAKE_SSH_HAS_DSS:+ssh-dss
+}"; exit 0 ;;
     -vv) verbose=1 ;;
     -p|-l|-i|-F|-S) i=$((i+2)); continue ;;
     -o) o="${args[i+1]}"
@@ -153,7 +156,7 @@ run_scenario() {
   local t0=$SECONDS
   set +e
   (cd "$OUT" && printf 'PROBE\nyes\nfake-device test\nyes\n\n' | env PATH="$BIN:$PATH" FAKE_LOG="$FAKE_LOG" "$@" \
-     bash "$PROBE" --host 127.0.0.1 --port 2222 >"$W/console-$SC.out" 2>&1)
+     bash "$PROBE" --host 127.0.0.1 --port 2222 ${EXTRA_ARGS:-} >"$W/console-$SC.out" 2>&1)
   PRC=$?
   set -e
   PSECS=$((SECONDS - t0))
@@ -214,6 +217,21 @@ run_scenario wrong-key FAKE_WRONG_KEY=1
 check "login refused (nonzero)" '[[ $PRC != 0 ]]'
 check "zero remote commands executed" '[[ ! -s "$FAKE_LOG" ]]'
 check "refusal evidence recorded" 'grep -q "Host key verification failed" "$R/ssh-login.stderr"'
+
+# ---- scenario: no-usable-key -------------------------------------------------
+run_scenario no-key FAKE_KEYSCAN_EMPTY=1
+check "stops with code 2 before login" '[[ $PRC == 2 ]] && [[ ! -s "$FAKE_LOG" ]]'
+check "suggests --allow-ssh-dss" 'grep -q -- "--allow-ssh-dss" "$W/console-$SC.out"'
+
+# ---- scenario: dss requested but client lacks DSA ------------------------------
+SC=dss-unsupported; OUT="$W/out-$SC"; mkdir -p "$OUT"; FAKE_LOG="$W/calls-$SC.log"; : >"$FAKE_LOG"
+set +e; (cd "$OUT" && env PATH="$BIN:$PATH" FAKE_LOG="$FAKE_LOG" bash "$PROBE" --host 127.0.0.1 --port 2222 --allow-ssh-dss </dev/null >"$W/console-$SC.out" 2>&1); PRC=$?; set -e
+check "refuses before any connection" '[[ $PRC != 0 ]] && [[ ! -s "$FAKE_LOG" ]] && grep -q "no DSA support" "$W/console-$SC.out"'
+
+# ---- scenario: dss allowed and supported ----------------------------------------
+EXTRA_ARGS=--allow-ssh-dss run_scenario dss-ok FAKE_SSH_HAS_DSS=1
+check "probe exit 0 with --allow-ssh-dss" '[[ $PRC == 0 ]]'
+check "dss opt-in recorded and warned" 'grep -q "allow_ssh_dss=1" "$R/meta.txt" && grep -q "WARNING: --allow-ssh-dss" "$W/console-$SC.out"'
 
 # ---- scenario: ls-8col --------------------------------------------------------
 run_scenario ls-8col FAKE_LS_8COL=1

@@ -10,15 +10,59 @@ reference data for the simulator and the replay transport.
 - Vehicle parked, you control power, nobody driving.
 - SSH on the head unit **already enabled** (the probe never enables it).
 - Do **not** have a read-write remount active from another session.
-- Host: Linux, or Ubuntu on WSL2, with OpenSSH, coreutils and binutils (`strings`).
-  On WSL2 a direct link-local (169.254.x.x) ENET address is usually *not* reachable;
-  use the TurboCode proxy on Windows and point the probe at it (`--host <windows-ip> --port 6969`).
+- Host: Linux, or **Windows 10 with Ubuntu 22.04 under WSL1** (see below). Needs bash,
+  OpenSSH client, coreutils and binutils (`strings`). Git Bash, PowerShell, Windows' own
+  OpenSSH and PuTTY are **not** supported (no SSH multiplexing).
 - Review the exact command list first:
 
 ```bash
 bash tools/probe/nbt-probe.sh --print-commands
 bash tools/probe/nbt-probe.sh --self-test
 ```
+
+## Windows 10 setup (WSL1)
+
+On Windows 10, WSL2 sits behind a virtual NAT and normally **cannot reach the car's
+link-local 169.254.x.x address** on the laptop's Ethernet port; WSL2's mirrored networking
+is Windows 11 only. **WSL1** shares the Windows network stack and reaches it directly.
+Ubuntu 22.04's OpenSSH 8.9 also still supports a DSA-only head unit via `--allow-ssh-dss`.
+
+PowerShell **as Administrator** (one-time; may ask for a reboot):
+
+```powershell
+wsl --set-default-version 1
+wsl --install -d Ubuntu-22.04
+wsl -l -v                         # Ubuntu-22.04 must show VERSION 1
+# If it shows 2:  wsl --set-version Ubuntu-22.04 1
+```
+
+In the Ubuntu window. Keep everything in the Linux home directory, **not** under `/mnt/c`:
+
+```bash
+sudo apt update && sudo apt install -y git openssh-client binutils
+git clone https://github.com/Mesya82/nbt-aad-manager.git ~/nbt-aad-manager
+cd ~/nbt-aad-manager
+git switch phase0-probe            # only until the branch is merged into main
+bash tools/probe/nbt-probe.sh --self-test
+bash tools/probe/nbt-probe.sh --print-commands | less
+```
+
+At the car:
+
+1. Connect the ENET cable to the laptop's Ethernet port. With no DHCP server,
+   Windows gives the adapter a 169.254.x.x address after about a minute.
+2. Use the head-unit address you know from the upstream install (often 169.254.199.99,
+   but it varies). The probe never guesses it.
+3. In Ubuntu, check reachability with `ping -c 3 <hu-ip>`, then run the probe.
+
+To bring the result back, copy `report.tgz` out of WSL:
+`cp ~/nbt-aad-manager/nbt-probe-*/report.tgz /mnt/c/Users/<you>/Desktop/`.
+Put it in `probe-runs/` in the repository on the development machine; that folder
+is git-ignored. Keep `private/` on the laptop.
+
+*Not yet verified on real WSL1:* the probe was tested on Linux with a fake head unit.
+If anything on the host side doesn't work (e.g. SSH multiplexing), the probe stops with
+a message before or without touching the head unit. Send me the console output in that case.
 
 ## Run
 

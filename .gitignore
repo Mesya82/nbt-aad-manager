@@ -19,3 +19,7 @@ fixtures/private/
 
 # Sanitized, license-checked miniature test fixtures may be committed.
 !tests/fixtures/*.zip
+
+# Probe output (contains device data; never commit)
+nbt-probe-*/
+probe-runs/
