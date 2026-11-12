@@ -337,3 +337,57 @@ fn consent_for_something_else_is_refused_before_any_command() {
     assert!(matches!(r, Err(E1Error::Plan(_))));
     assert_eq!(rec.executed(), 0);
 }
+
+/// E1d with a scripted daemon: (states after the start poll, expected
+/// number of E1d polls, expected result).
+fn e1d(script: &[bool]) -> (Phase1, Op) {
+    let mut hu = unit();
+    // First entry answers the start-of-run pidin.
+    hu.pidin_running = std::iter::once(true)
+        .chain(script.iter().copied())
+        .collect();
+    let (r, _, _, op) = run1(hu);
+    (r.unwrap(), op)
+}
+
+fn e1d_polls(p1: &Phase1) -> usize {
+    p1.lines.iter().filter(|l| l.starts_with("E1d t+")).count()
+}
+
+#[test]
+fn e1d_ends_at_once_when_force_stop_did_not_stop_the_daemon() {
+    let (p1, op) = e1d(&[true]);
+    assert_eq!(e1d_polls(&p1), 1);
+    assert!(
+        p1.lines
+            .iter()
+            .any(|l| l == "E1d result: still running after Force Stop")
+    );
+    assert_eq!(op.slept, vec![SETTLE_BEFORE_RESTART], "no E1d waiting");
+    assert_eq!(p1.stopped, None, "E1e still runs");
+}
+
+#[test]
+fn e1d_ends_early_when_the_daemon_comes_back() {
+    let (p1, op) = e1d(&[false, false, true]);
+    assert_eq!(e1d_polls(&p1), 3);
+    assert!(
+        p1.lines
+            .iter()
+            .any(|l| l == "E1d result: restarted by itself (autostart)")
+    );
+    assert_eq!(op.slept.len(), 2 + 1);
+}
+
+#[test]
+fn e1d_observes_the_full_minute_when_the_daemon_stays_stopped() {
+    let (p1, op) = e1d(&[false; PIDIN_POLLS]);
+    assert_eq!(e1d_polls(&p1), PIDIN_POLLS);
+    assert!(
+        p1.lines
+            .iter()
+            .any(|l| l == "E1d result: stopped; no restart within the observation window")
+    );
+    let waited: Duration = op.slept[..PIDIN_POLLS - 1].iter().sum();
+    assert_eq!(waited, Duration::from_secs(60));
+}

@@ -26,7 +26,9 @@ pub const USB_DIR: &str = "nbt-e1";
 pub const FILES: [&str; 3] = ["f1", "f2", "f3"];
 /// What the operator must type to allow E1's scratch writes.
 pub const CONSENT_WORD: &str = "SCRATCH-WRITES";
-pub const PIDIN_POLLS: usize = 12;
+/// At most this many `pidin` polls after Force Stop (one minute at 10 s);
+/// the loop ends early once the answer is known.
+pub const PIDIN_POLLS: usize = 7;
 pub const PIDIN_INTERVAL: Duration = Duration::from_secs(10);
 pub const SETTLE_BEFORE_RESTART: Duration = Duration::from_secs(5);
 
@@ -278,12 +280,17 @@ where
 
     let pidin = plan_cmd(p, "hu-pidin-arg")?;
     let test_w = plan_cmd(p, "hu-test-w-opt-aa")?;
-    let pid_line = |r: &Option<ExecResult>| -> String {
-        r.as_ref().map_or("rejected".into(), |r| {
-            let running = String::from_utf8_lossy(&r.stdout)
-                .contains(&format!("{}/{}", p.daemon_dir, p.daemon_name));
-            format!("rc={} daemon_running={running}", rc(r))
+    let running_in = |r: &Option<ExecResult>| -> Option<bool> {
+        r.as_ref().map(|r| {
+            String::from_utf8_lossy(&r.stdout)
+                .contains(&format!("{}/{}", p.daemon_dir, p.daemon_name))
         })
+    };
+    let pid_line = |r: &Option<ExecResult>| -> String {
+        match (r, running_in(r)) {
+            (Some(r), Some(running)) => format!("rc={} daemon_running={running}", rc(r)),
+            _ => "rejected".into(),
+        }
     };
     let r = read(rec, "e1-pidin-start", Policy::Text, &pidin, cfg.text_limits).await?;
     lines.push(format!("start: pidin {}", pid_line(&r)));
@@ -404,6 +411,10 @@ where
 
     // E1d: Force Stop and watch for autostart.
     op.force_stop().await;
+    // Stops as soon as the answer is known: still running at the first poll
+    // (Force Stop did not stop it), or back after being gone (autostart).
+    let mut seen_stopped = false;
+    let mut verdict = None;
     for k in 0..PIDIN_POLLS {
         let r = read(rec, "e1d-pidin", Policy::Text, &pidin, lim).await?;
         lines.push(format!(
@@ -411,10 +422,27 @@ where
             k as u64 * PIDIN_INTERVAL.as_secs(),
             pid_line(&r)
         ));
+        match running_in(&r) {
+            Some(true) if k == 0 => verdict = Some("still running after Force Stop"),
+            Some(true) if seen_stopped => verdict = Some("restarted by itself (autostart)"),
+            Some(false) => seen_stopped = true,
+            _ => {}
+        }
+        if verdict.is_some() {
+            break;
+        }
         if k + 1 < PIDIN_POLLS {
             op.sleep(PIDIN_INTERVAL).await;
         }
     }
+    lines.push(format!(
+        "E1d result: {}",
+        verdict.unwrap_or(if seen_stopped {
+            "stopped; no restart within the observation window"
+        } else {
+            "undetermined (pidin rejected)"
+        })
+    ));
 
     // E1e: write, settle, then the operator restarts.
     for (id, body) in [

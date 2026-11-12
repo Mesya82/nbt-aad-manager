@@ -31,8 +31,8 @@ use crate::probe_cmd::{self, Console, Mode, Run, read_line, tcp};
 use crate::sink::FsSink;
 
 pub const FILE_SIZE: usize = 1024 * 1024;
-const RECONNECT_ATTEMPTS: u32 = 20;
-const RECONNECT_WAIT: Duration = Duration::from_secs(15);
+const RECONNECT_ATTEMPTS: u32 = 30;
+const RECONNECT_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(clap::Args)]
 pub struct ExperimentArgs {
@@ -106,7 +106,7 @@ pub fn banner_text(e1: &E1Prep) -> String {
          \x20 - inspect first; stop before any write unless the unit and install verify\n\
          \x20 - remount /fs/sda0 rw, then ro, then rw again (as upstream updates do)\n\
          \x20 - write ONLY inside {SCRATCH} (mkdir, cp from the stick, chmod, mv)\n\
-         \x20 - ask you to Force Stop Android Auto in iDrive, then watch for 2 minutes\n\
+         \x20 - ask you to Force Stop Android Auto in iDrive, then watch for up to 1 minute\n\
          \x20 - ask you to restart the head unit (hold power ~30 s), reconnect, re-check\n\
          It never touches the daemon, plugin, settings or backups.\n\
          Before continuing: move the stick to the car's USB port.",
@@ -171,7 +171,7 @@ impl E1Operator for CliOperator<'_> {
         })
         .await;
         self.console
-            .say("Watching for nbt-aad for 2 minutes (do not touch iDrive meanwhile)...");
+            .say("Watching nbt-aad for up to 1 minute (do not touch iDrive meanwhile)...");
     }
     async fn sleep(&mut self, d: Duration) {
         tokio::time::sleep(d).await;
@@ -261,9 +261,10 @@ pub async fn run(s: Session) -> ExitCode {
 
     // The operator restart (E1e), also returns /fs/sda0 to read-only.
     run.console.say(
-        "\n==> RESTART NOW: hold the head unit's power button for ~30 s until it restarts.\n    Wait until the iDrive screen is back and about one more minute has passed.",
+        "\n==> RESTART NOW: hold the head unit's power button for ~30 s until it restarts.\n    The tool keeps retrying for about 5 minutes; no extra waiting is needed.",
     );
-    run.console.ask("Press Enter when the head unit is back: ");
+    run.console
+        .ask("Press Enter as soon as it has started restarting (screen off): ");
     let mut session = None;
     for attempt in 1..=RECONNECT_ATTEMPTS {
         run.console.say(&format!(

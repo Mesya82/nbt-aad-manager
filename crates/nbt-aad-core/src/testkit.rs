@@ -34,6 +34,9 @@ pub struct FakeHu {
     pub eight_col_ls: bool,
     /// Paths (prefixes) on a read-only mount: `test -w` fails there.
     pub read_only: Vec<String>,
+    /// Scripted answers of `pidin -p nbt-aad arg`, one per call (true =
+    /// daemon running). When empty, the daemon is reported as not running.
+    pub pidin_running: std::collections::VecDeque<bool>,
 }
 
 impl FakeHu {
@@ -102,6 +105,7 @@ impl FakeHu {
             fs,
             seen: Vec::new(),
             lose_after: None,
+            pidin_running: Default::default(),
             hang_on: None,
             on_broken: false,
             eight_col_ls: false,
@@ -268,6 +272,13 @@ impl FakeHu {
             }
             ["test", "-w", p] => {
                 u32::from(self.read_only.iter().any(|ro| p.starts_with(ro.as_str())))
+            }
+            ["pidin", "-p", "nbt-aad", "arg"] => {
+                o.push_str("     pid Arguments\n");
+                if self.pidin_running.pop_front().unwrap_or(false) {
+                    o.push_str("  245785 /opt/aa/nbt-aad\n");
+                }
+                0
             }
             ["date"] | ["mount"] | ["pidin"] => {
                 o.push_str("fake\n");
