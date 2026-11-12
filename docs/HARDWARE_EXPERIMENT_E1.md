@@ -8,6 +8,9 @@ Status: approved by the operator on 2026-11-09 and implemented as `nbt-aad-manag
 
 1. Plug the USB stick into the laptop and note its drive letter (e.g. `E:`).
 2. Run `.\nbt-aad-manager.exe experiment-e1 --host 169.254.199.99 --usb E:\`.
+   - Linux / WSL: the static binary from the `nbt-aad-manager-linux-x86_64` CI artifact (`tar xzf nbt-aad-manager-linux-x86_64.tar.gz`), run as `./nbt-aad-manager experiment-e1 --host 169.254.199.99 --usb /mnt/e`. Under WSL2 (not yet tried with the car):
+     - The car's link-local address on the Windows Ethernet adapter is normally **not** reachable from WSL2's default NAT network. Check with `nc -zv 169.254.199.99 22` first; if it fails, use `networkingMode=mirrored` in `%UserProfile%\.wslconfig` (then `wsl --shutdown`), or run the Windows `.exe` instead.
+     - A removable stick may not be auto-mounted: `sudo mkdir -p /mnt/e && sudo mount -t drvfs E: /mnt/e`.
    - The tool writes `nbt-e1\f1..f3` (random, 1 MiB each) onto the stick before it connects. A set from an earlier attempt is reused, and nothing is overwritten.
 3. Follow the prompts:
    1. Type `EXPERIMENT`, then `SCRATCH-WRITES`. That is the consent for the scratch writes and the remounts.

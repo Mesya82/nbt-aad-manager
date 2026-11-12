@@ -80,6 +80,49 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  linux-binary:
+    name: Linux binary (static musl; for WSL/Ubuntu; read-only except the approved experiment-e1) + checksum + provenance
+    needs: [rust, openssh-interop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --release --locked -p nbt-aad-cli --target x86_64-unknown-linux-musl
+      - name: Check static linking and smoke-run
+        run: |
+          file target/x86_64-unknown-linux-musl/release/nbt-aad-manager | tee /dev/stderr | grep -q 'static'
+          target/x86_64-unknown-linux-musl/release/nbt-aad-manager --help > /dev/null
+      - name: Stage artifact and SHA-256
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/nbt-aad-manager dist/
+          chmod 755 dist/nbt-aad-manager
+          (cd dist && sha256sum nbt-aad-manager > nbt-aad-manager.sha256 && cat nbt-aad-manager.sha256)
+          echo "commit $GITHUB_SHA" > dist/BUILD-INFO.txt
+          # upload-artifact drops the executable bit; ship a tarball that keeps it.
+          tar -C dist -czf nbt-aad-manager-linux-x86_64.tar.gz nbt-aad-manager nbt-aad-manager.sha256 BUILD-INFO.txt
+          mv nbt-aad-manager-linux-x86_64.tar.gz dist/
+      - name: Build provenance attestation
+        if: github.event_name == 'push'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/nbt-aad-manager
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nbt-aad-manager-linux-x86_64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
   probe:
     name: Bash probe self-test + fake head-unit sandbox
     runs-on: ubuntu-latest
